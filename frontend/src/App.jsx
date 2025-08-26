@@ -44,7 +44,7 @@ function App() {
     formData.append("file", selectedFile);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/summarize", {
+      const response = await fetch("https://ai-assistant-backend-972171596347.us-central1.run.app/summarize", {
         method: "POST",
         body: formData,
         // Note: Do not set 'Content-Type' header when using FormData,
