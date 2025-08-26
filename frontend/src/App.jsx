@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
-import Header from './Header';
-import FileUploadForm from './FileUploadForm';
-import ResultsDisplay from './ResultsDisplay';
+
+// Assuming these components are in a 'components' subdirectory
+import Header from './components/Header.jsx';
+import FileUploadForm from './components/FileUploadForm.jsx';
+import ResultsDisplay from './components/ResultsDisplay.jsx';
+
+// --- Main App Component ---
 
 function App() {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -23,16 +27,47 @@ function App() {
     }
   };
 
-  const handleSubmit = (event) => {
+  // This is the new async function to handle the API call
+  const handleSubmit = async (event) => {
     event.preventDefault();
     if (!selectedFile) {
       setError("Please select a file before summarizing.");
       return;
     }
-    // API call logic will be added here in the next task
-    console.log("Summarizing file:", selectedFile.name);
-    // Example of setting loading state
-    // setIsLoading(true); 
+
+    setIsLoading(true);
+    setError("");
+    setSummary("");
+
+    // Create a FormData object to send the file
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/summarize", {
+        method: "POST",
+        body: formData,
+        // Note: Do not set 'Content-Type' header when using FormData,
+        // the browser will automatically set it with the correct boundary.
+      });
+
+      if (!response.ok) {
+        // Try to parse error message from backend, otherwise use default
+        const errorData = await response.json().catch(() => null);
+        const errorMessage = errorData?.detail || `An error occurred: ${response.statusText}`;
+        throw new Error(errorMessage);
+      }
+
+      const result = await response.json();
+      setSummary(result.summary);
+
+    } catch (err) {
+      // Handle network errors or errors thrown from the response check
+      setError(err.message);
+    } finally {
+      // Ensure loading is turned off whether the request succeeds or fails
+      setIsLoading(false);
+    }
   };
 
   return (
