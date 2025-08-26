@@ -2,6 +2,7 @@
 
 import fitz  # PyMuPDF
 from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi.middleware.cors import CORSMiddleware  # Import CORS Middleware
 from typing import Annotated
 
 # Import the summary generation function from our new module
@@ -13,6 +14,28 @@ app = FastAPI(
     description="API for the AI Research Assistant application.",
     version="0.1.0",
 )
+
+# --- CORS (Cross-Origin Resource Sharing) Middleware ---
+# This allows your frontend (running on a different URL, e.g., localhost:3000)
+# to communicate with your backend (e.g., localhost:8000).
+
+# Define the list of origins that are allowed to make requests.
+# For development, this is typically your frontend's local server.
+origins = [
+    "http://localhost:3000",
+    # You could also add your deployed frontend's URL here later
+    # "https://your-frontend-domain.com",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # The list of origins that are allowed to make requests
+    allow_credentials=True, # Allows cookies to be included in requests
+    allow_methods=["*"],    # Allows all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],    # Allows all headers
+)
+# ---------------------------------------------------------
+
 
 @app.get("/health")
 def read_health_check():
@@ -62,7 +85,7 @@ async def summarize_pdf(file: Annotated[UploadFile, File(description="A PDF file
         # Re-raise HTTP exceptions to let FastAPI handle them
         raise e
     except Exception as e:
-        # Handle potential errors during PDF processing or summarization
-        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
-
+        # The existing general exception handler already returns a 500 error
+        # with a consistent JSON format, fulfilling the task requirement.
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
