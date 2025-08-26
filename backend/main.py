@@ -1,5 +1,6 @@
 # main.py
 
+import fitz  # PyMuPDF
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from typing import Annotated
 
@@ -20,12 +21,12 @@ def read_health_check():
     return {"status": "ok"}
 
 
-# 3. Define the PDF upload endpoint
+# 3. Define the PDF upload and text extraction endpoint
 @app.post("/summarize")
 async def summarize_pdf(file: Annotated[UploadFile, File(description="A PDF file to summarize.")]):
     """
-    Accepts a PDF file, validates its content type, and returns its metadata.
-    This is the first step towards the full summarization feature.
+    Accepts a PDF file, validates it, extracts the full text content,
+    and returns the extracted text.
     """
     # Validate the file's content type to ensure it's a PDF
     if file.content_type != "application/pdf":
@@ -35,10 +36,28 @@ async def summarize_pdf(file: Annotated[UploadFile, File(description="A PDF file
             detail="Invalid file type. Please upload a PDF document."
         )
 
-    # On successful validation, return the file's metadata as a JSON response
-    return {
-        "filename": file.filename,
-        "content_type": file.content_type,
-        "detail": "File successfully uploaded and validated."
-    }
+    try:
+        # Read the file content into memory
+        file_bytes = await file.read()
+
+        # Open the PDF from the in-memory bytes
+        pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
+
+        # Initialize an empty string to hold all the text
+        extracted_text = ""
+
+        # Iterate through each page of the PDF
+        for page_num in range(len(pdf_document)):
+            page = pdf_document.load_page(page_num)
+            extracted_text += page.get_text()
+
+        # Close the document
+        pdf_document.close()
+
+        # Return the extracted text in a JSON response
+        return {"text": extracted_text}
+
+    except Exception as e:
+        # Handle potential errors during PDF processing
+        raise HTTPException(status_code=500, detail=f"An error occurred while processing the PDF: {e}")
 
