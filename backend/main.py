@@ -1,6 +1,7 @@
 # main.py
 
-from fastapi import FastAPI
+from fastapi import FastAPI, File, UploadFile, HTTPException
+from typing import Annotated
 
 # 1. Create an instance of the FastAPI class
 app = FastAPI(
@@ -17,3 +18,27 @@ def read_health_check():
     API server is running and responsive.
     """
     return {"status": "ok"}
+
+
+# 3. Define the PDF upload endpoint
+@app.post("/summarize")
+async def summarize_pdf(file: Annotated[UploadFile, File(description="A PDF file to summarize.")]):
+    """
+    Accepts a PDF file, validates its content type, and returns its metadata.
+    This is the first step towards the full summarization feature.
+    """
+    # Validate the file's content type to ensure it's a PDF
+    if file.content_type != "application/pdf":
+        # If not a PDF, raise an HTTP 400 Bad Request error
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Please upload a PDF document."
+        )
+
+    # On successful validation, return the file's metadata as a JSON response
+    return {
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "detail": "File successfully uploaded and validated."
+    }
+
