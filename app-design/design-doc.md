@@ -1,131 +1,164 @@
+AI Research Assistant: Technical Design Document (V2)
 1.0 Introduction
-This document outlines the technical design for the AI Research Paper Analyzer, a full-stack web application. The primary goal of the Minimum Viable Product (MVP) is to provide users with an AI-generated summary of an uploaded PDF research paper. This system is designed as a portfolio piece, emphasizing modern, scalable, and production-ready software engineering practices, including containerization and cloud deployment.
+This document outlines the technical design for the AI Research Assistant, a full-stack web application. The goal of this phase is to evolve the application from a simple summarizer into an interactive research tool.
+
+The core of this upgrade is the implementation of a Retrieval-Augmented Generation (RAG) pipeline. This will allow users to upload a PDF document and have an in-depth, context-aware conversation with an AI about its contents. This design emphasizes a scalable, production-ready architecture using a dedicated database and modern AI practices.
 
 2.0 System Architecture
-The application follows a decoupled, service-oriented architecture. The frontend is a single-page application (SPA) that communicates with a containerized backend API. The backend orchestrates the core logic of text extraction and interfacing with an external AI service for summarization.
+The application will use a decoupled architecture with a React frontend, a FastAPI backend, and a PostgreSQL database. The key innovation is the introduction of a vector database and a dual-flow process: one for document ingestion and one for interactive chat.
 
-2.1 Architectural Diagram
-The following diagram illustrates the flow of data and the interaction between system components:
+2.1 Architectural Diagram & Data Flow
+Ingestion Flow (When a user uploads a PDF):
+Upload: The user uploads a PDF via the React frontend.
 
-1. Upload: The user uploads a PDF via the React frontend.
+API Request: The frontend sends the PDF to a POST /upload endpoint on the FastAPI backend.
 
-2. API Request: The frontend sends the PDF in a multipart/form-data request to the FastAPI backend hosted on Google Cloud Run.
+Text Extraction: The backend uses the PyMuPDF library to extract the full text.
 
-3. Text Extraction: The backend uses the PyMuPDF library to extract the full text from the PDF.
+Chunking: The extracted text is broken down into smaller, overlapping chunks.
 
-4. AI Service Call: The backend sends the extracted text to the Google Gemini API for summarization.
+Embedding: Each text chunk is converted into a numerical vector representation using an embedding model.
 
-5. AI Response: The Gemini API returns the generated summary as a text string.
+Storage: The document's metadata is stored in a documents table, and the text chunks and their corresponding embeddings are stored in a text_chunks table within the PostgreSQL database (using the pgvector extension).
 
-6. API Response: The backend forwards the summary to the frontend in a JSON response.
+Chat Flow (When a user asks a question):
+User Question: The user submits a question through the chat interface on the frontend.
 
-7. Display: The React frontend displays the summary to the user.
+API Request: The frontend sends the question and the document_id to a POST /chat endpoint.
+
+Query Embedding: The backend generates an embedding for the user's question.
+
+Vector Search: The backend queries the vector database to find the text chunks whose embeddings are most semantically similar to the question's embedding.
+
+Context-Aware Prompt: The retrieved text chunks are combined with the user's question into a detailed prompt for the Gemini LLM.
+
+LLM Generation: The LLM generates an answer based only on the provided context.
+
+Display: The answer is streamed back to the React frontend and displayed in the chat window.
 
 2.2 Component Breakdown
-Frontend: A React.js single-page application hosted on Vercel (or Netlify). It is responsible for providing the user interface for file uploads and displaying the final summary. It is a static build, served globally via a CDN for low latency.
+Frontend: A React.js single-page application hosted on Vercel. It is responsible for the file upload interface and the interactive chat window.
 
-Backend: A Python FastAPI application responsible for all business logic.
+Backend: A Python FastAPI application, containerized with Docker and deployed on Google Cloud Run. It handles all business logic:
 
-It exposes a single API endpoint to handle file uploads.
+PDF processing (extraction, chunking, embedding).
 
-It performs text extraction from PDF files.
+Database interactions (storing and retrieving data/vectors).
 
-It communicates with the Google Gemini API.
+Orchestrating the RAG pipeline and communicating with the Google Gemini API.
 
-It is packaged as a Docker container and deployed on Google Cloud Run, a serverless platform that automatically scales based on incoming traffic.
+Database: A PostgreSQL server with the pgvector extension enabled. This single database serves as both the relational store for document metadata and the vector store for efficient similarity searches.
 
-AI Service: The Google Gemini API is used as an external service. It takes a text input and a prompt and returns a generated summary. Communication occurs via a secure REST API call authenticated with an API key.
+AI Services:
 
-Container Registry: Google Artifact Registry is used to store and manage the backend's Docker images. It serves as the private, secure source from which Cloud Run pulls the container image for deployment.
+Google Gemini API: Used as the Large Language Model (LLM) for generating answers.
 
-3.0 Data Models
-For the MVP, data is not persisted. The data models describe the structure of the data in transit between services.
+Sentence-Transformers: A library used to run the embedding model that converts text to vectors.
 
-3.1 API Request/Response
-File Upload Request: The request from the frontend to the backend is a multipart/form-data POST request containing the PDF file.
+3.0 Data Models (PostgreSQL Schema)
+The application will rely on a persistent PostgreSQL database with the following core tables.
 
-file: The PDF document (<filename>.pdf).
+documents Table
+Stores metadata for each uploaded PDF.
 
-Summary Response (Success): A JSON object containing the summary.
+Column
 
-JSON
+Type
 
-{
-  "summary": "This is the AI-generated summary of the research paper..."
-}
-Error Response: A JSON object detailing the error.
+Description
 
-JSON
+id
 
-{
-  "detail": "A human-readable error message."
-}
-3.2 Gemini API Integration
-Request to Gemini API: A JSON payload sent from our backend to the Google Gemini API.
+INTEGER
 
-JSON
+Primary Key, auto-incrementing.
 
-{
-  "contents": [
-    {
-      "parts": [
-        {
-          "text": "Summarize the following research paper: [EXTRACTED_TEXT_FROM_PDF]"
-        }
-      ]
-    }
-  ]
-}
-Response from Gemini API: The response from Gemini will contain the generated text, which our backend will parse to extract the summary.
+filename
+
+VARCHAR
+
+The original name of the uploaded file.
+
+upload_date
+
+TIMESTAMP
+
+The timestamp when the document was uploaded.
+
+text_chunks Table
+Stores the processed text and vector data for each document.
+
+Column
+
+Type
+
+Description
+
+id
+
+INTEGER
+
+Primary Key, auto-incrementing.
+
+document_id
+
+INTEGER
+
+Foreign Key linking to documents.id.
+
+chunk_text
+
+TEXT
+
+The actual text content of the chunk.
+
+embedding
+
+VECTOR
+
+The vector embedding of chunk_text.
 
 4.0 API Contracts
-The backend exposes a single RESTful API endpoint.
+The backend will expose two primary RESTful API endpoints.
 
-POST /summarize
-Description: Accepts a PDF file, extracts its text, generates a summary, and returns it.
+POST /upload
+Description: Accepts a PDF file, processes it through the ingestion pipeline, and stores it in the database.
 
-Method: POST
-
-URL: /summarize
-
-Request Header:
-
-Content-Type: multipart/form-data
-
-Request Body:
-
-file: The research paper in .pdf format.
+Request Body: multipart/form-data containing the file.
 
 Responses:
 
-200 OK: Successful summarization. The body contains the summary JSON object.
+200 OK: Successful ingestion. The body contains { "document_id": <new_id> }.
 
-400 Bad Request: The uploaded file is invalid, not a PDF, or missing. The body contains an error JSON object.
+400 Bad Request: Invalid file type or unprocessable PDF.
 
-422 Unprocessable Entity: The file is a valid type but cannot be processed by the server.
+500 Internal Server Error: An unexpected error occurred during processing.
 
-500 Internal Server Error: An unexpected error occurred on the backend, such as a failure to connect to the Gemini API.
+POST /chat
+Description: Accepts a user question for a specific document and returns a context-aware AI answer.
+
+Request Body: JSON object { "document_id": <id>, "question": "<user_question>" }.
+
+Responses:
+
+200 OK: Successful response. The body contains the AI-generated answer as a string or a stream.
+
+404 Not Found: The specified document_id does not exist.
+
+500 Internal Server Error: An unexpected error occurred during the RAG process.
 
 5.0 Deployment & DevOps
-The project will use Git and GitHub for version control. Continuous Integration and Continuous Deployment (CI/CD) pipelines will be established for both the frontend and backend.
+The deployment strategy remains consistent with the MVP, with the addition of database management.
 
-5.1 Backend Deployment (Google Cloud Run)
-Trigger: A push or merge to the main branch on GitHub.
+Backend: The FastAPI application will be containerized using Docker and deployed to Google Cloud Run. The database connection string will be managed as a secret environment variable.
 
-Build: A GitHub Actions workflow builds the FastAPI application into a Docker image.
+Frontend: The React application will be deployed to Vercel and connected to its GitHub repository for continuous deployment.
 
-Push: The newly built Docker image is tagged and pushed to Google Artifact Registry.
-
-Deploy: The GitHub Actions workflow then triggers a new deployment on Google Cloud Run, instructing it to pull the latest image version from the Artifact Registry. Environment variables, including the GEMINI_API_KEY, will be managed as secrets within Cloud Run.
-
-5.2 Frontend Deployment (Vercel)
-Trigger: A push or merge to the main branch on GitHub.
-
-Build & Deploy: The Vercel platform automatically detects the code change, runs the npm run build command to create a production build of the React app, and deploys the resulting static files to its global CDN.
+Database: For production, a managed PostgreSQL service (like Google Cloud SQL or Neon) will be used.
 
 6.0 Security Considerations
-API Key Management: The Google Gemini API key is sensitive. It will be managed using a .env file locally (and included in .gitignore). For deployment, it will be stored as a secret in Google Cloud Run's environment variable settings, ensuring it is never exposed in source code or build artifacts.
+API Key Management: The GEMINI_API_KEY and database credentials will be stored as secrets in Google Cloud Run's environment variable settings and never committed to source code.
 
-Input Validation: The backend will strictly validate file uploads to ensure they are of the application/pdf MIME type. It will also implement error handling to gracefully manage corrupted or unreadable PDFs to prevent server crashes.
+Input Validation: The backend will strictly validate all inputs, including file types on upload and the structure of JSON payloads for chat requests.
 
-Cross-Origin Resource Sharing (CORS): The FastAPI backend will be configured with a CORS policy to only accept requests from the deployed frontend's domain, preventing unauthorized websites from using the API.
+CORS: The FastAPI backend will maintain a strict CORS policy to only accept requests from the deployed frontend's domain.
