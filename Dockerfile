@@ -22,4 +22,4 @@ COPY ./backend /code/backend
 EXPOSE 8080
 
 # 8. Define the command to run your app, updating the path to 'main'
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "$PORT"]
