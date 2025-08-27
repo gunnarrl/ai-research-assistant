@@ -86,7 +86,7 @@ env.yaml
 # Next.js build output
 .next
 out
-
+/venv
 # Nuxt.js build / generate output
 .nuxt
 dist
