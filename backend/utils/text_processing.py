@@ -1,16 +1,14 @@
 # backend/utils/text_processing.py
+import re
+import numpy as np
+import nltk
+from sentence_transformers import SentenceTransformer
 
-def chunk_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> list[str]:
+# --- Fallback Function for very long sentences ---
+def _chunk_long_sentence(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     """
-    Splits a long text into smaller, word-aware chunks of a specified size with overlap.
-
-    Args:
-        text: The input text to be chunked.
-        chunk_size: The desired approximate size of each chunk (in characters).
-        chunk_overlap: The number of characters to overlap between consecutive chunks.
-
-    Returns:
-        A list of text chunks.
+    Splits a single long text string into smaller, word-aware chunks.
+    This is a helper for the main hybrid chunker.
     """
     if not isinstance(text, str) or chunk_overlap >= chunk_size:
         return []
@@ -18,60 +16,122 @@ def chunk_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> l
     chunks = []
     start_index = 0
     
-    # Iterate through the text
     while start_index < len(text):
-        # Determine the potential end of the chunk
         end_index = start_index + chunk_size
-        
-        # If the potential end is beyond the text length, just take the rest of the text
         if end_index >= len(text):
             chunks.append(text[start_index:])
             break
         
-        # Find the last space or newline before the desired end_index to avoid splitting words
-        # We search backwards from the potential end_index
+        # Find the last space to avoid splitting words
         split_index = text.rfind(' ', start_index, end_index)
-        if split_index == -1: # No space found, fall back to hard cut
+        if split_index == -1: # No space found, hard cut
             split_index = end_index
             
         chunks.append(text[start_index:split_index])
-        provisional_start = split_index - chunk_overlap
+        start_index = split_index - chunk_overlap
         
-        # To ensure the next chunk starts with a complete word, find the first
-        # space at or after the provisional start point. We search within the
-        # overlap region (from provisional_start to split_index).
-        word_boundary = text.find(' ', provisional_start, split_index)
-        
-        if word_boundary != -1:
-            # If a space is found, the next chunk starts right after it.
-            start_index = word_boundary + 1
-        else:
-            # If no space is found in the overlap (e.g., a very long word),
-            # fall back to starting where the last chunk ended to avoid errors.
-            start_index = split_index
-
-        # Final safety check to prevent getting stuck
-        if start_index >= split_index:
+        # Ensure we don't get stuck
+        if start_index < 0:
             start_index = split_index
 
     return chunks
 
+# --- Main Hybrid Chunking Function ---
+def chunk_text_hybrid(
+    text: str, 
+    model: SentenceTransformer, 
+    similarity_threshold: float = 0.5,
+    sentence_overlap: int = 1,
+    max_sentence_chars: int = 1000,
+    fallback_chunk_size: int = 400,
+    fallback_chunk_overlap: int = 100
+) -> list[str]:
+    """
+    Splits a long text into semantically coherent chunks using a hybrid approach.
+
+    Args:
+        text: The input text to be chunked.
+        model: The SentenceTransformer model for embeddings.
+        similarity_threshold: Lower values -> fewer, larger chunks. Higher values -> more, smaller chunks.
+        sentence_overlap: Number of sentences to overlap between chunks for context.
+        max_sentence_chars: Sentences longer than this will be split by the fallback method.
+        fallback_chunk_size: The chunk size for the fixed-size fallback chunker.
+        fallback_chunk_overlap: The overlap for the fixed-size fallback chunker.
+
+    Returns:
+        A list of semantically coherent text chunks.
+    """
+    # 1. Split text into sentences using NLTK for better accuracy
+    try:
+        base_sentences = nltk.sent_tokenize(text)
+    except LookupError:
+        print("NLTK 'punkt' tokenizer not found. Downloading...")
+        nltk.download('punkt')
+        base_sentences = nltk.sent_tokenize(text)
+
+    # 2. Handle very long sentences using the fallback chunker (Hybrid Approach)
+    processed_sentences = []
+    for sentence in base_sentences:
+        if len(sentence) > max_sentence_chars:
+            processed_sentences.extend(_chunk_long_sentence(
+                sentence, fallback_chunk_size, fallback_chunk_overlap
+            ))
+        else:
+            processed_sentences.append(sentence)
+    
+    if not processed_sentences:
+        return []
+
+    # 3. Generate embeddings for each processed sentence/chunk
+    embeddings = model.encode(processed_sentences, convert_to_tensor=True)
+
+    # 4. Calculate cosine similarity between adjacent items
+    similarities = []
+    for i in range(len(processed_sentences) - 1):
+        emb1 = embeddings[i]
+        emb2 = embeddings[i+1]
+        similarity = np.dot(emb1.cpu().numpy(), emb2.cpu().numpy()) / \
+                     (np.linalg.norm(emb1.cpu().numpy()) * np.linalg.norm(emb2.cpu().numpy()))
+        similarities.append(similarity)
+
+    # 5. Identify split points
+    split_indices = [i + 1 for i, sim in enumerate(similarities) if sim < similarity_threshold]
+
+    # 6. Group sentences into chunks with overlap
+    chunks = []
+    start_index = 0
+    for end_index in split_indices:
+        # Ensure overlap doesn't go below zero
+        overlap_start = max(0, start_index - sentence_overlap)
+        chunk = " ".join(processed_sentences[overlap_start:end_index])
+        chunks.append(chunk)
+        start_index = end_index
+
+    # Add the final chunk
+    overlap_start = max(0, start_index - sentence_overlap)
+    final_chunk = " ".join(processed_sentences[overlap_start:])
+    chunks.append(final_chunk.strip())
+
+    return [chunk for chunk in chunks if chunk] # Filter out any empty chunks
+
 # --- Testing Block ---
 if __name__ == '__main__':
-    sample_text = """This is a long sample text to demonstrate the functionality of the text chunking algorithm. The purpose of chunking is to break down a large document into smaller, more manageable pieces. These pieces, or chunks, can then be processed individually, for example, by converting them into vector embeddings for a Retrieval-Augmented Generation (RAG) system. The overlap between chunks is crucial. It ensures that semantic context is not lost at the boundaries of the chunks. For instance, a sentence that starts at the end of one chunk and finishes at the beginning of the next would be fully preserved in the context of the second chunk due to this overlap. Let's add more text to make sure we get multiple chunks. The total length of this text should be sufficient to generate at least two or three chunks with the default settings of chunk_size=1000 and chunk_overlap=200. We are adding filler content now to extend the length beyond the initial chunk size. This process is repeated until the entire document has been processed and converted into a list of overlapping text strings. The final chunk might be smaller than the specified chunk size, which is perfectly acceptable as it simply contains the remaining text from the document. Testing this function independently is a key part of the development process to ensure its correctness before integrating it into the main application pipeline. This concludes the sample text.
+    sample_text = """This is a long sample text. The purpose is to demonstrate chunking. Dr. Smith lives on St. John's St. A completely different topic now follows. The solar system has eight planets. Jupiter is the largest. Now, an extremely long sentence to test the fallback mechanism: this single sentence will go on and on, far exceeding the character limit we have set, forcing the hybrid chunker to switch from its semantic, sentence-based splitting to a more rudimentary, fixed-size character-based splitting to ensure that no single piece of text passed to the next stage is overwhelmingly large, which is a critical consideration for maintaining performance and staying within the context window limitations of many downstream language models. Finally, we return to the original topic. The overlap between chunks is crucial.
     """
 
-    print(f"Original text length: {len(sample_text)} characters")
+    print("--- Testing Hybrid Semantic Chunking ---")
     
-    text_chunks = chunk_text(sample_text, chunk_size=400, chunk_overlap=80)
+    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
     
-    print(f"\nGenerated {len(text_chunks)} chunks.")
+    hybrid_chunks = chunk_text_hybrid(
+        sample_text, 
+        model=embedding_model, 
+        similarity_threshold=0.4,
+        sentence_overlap=1
+    )
+    
+    print(f"\nGenerated {len(hybrid_chunks)} hybrid chunks.")
     print("-" * 20)
     
-    # Verify that words are not split between chunks
-    for i in range(len(text_chunks) - 1):
-        chunk1_end = text_chunks[i][-20:].replace('\n', ' ') # Last 20 chars of chunk i
-        chunk2_start = text_chunks[i+1][:20].replace('\n', ' ') # First 20 chars of chunk i+1
-        
-        print(f"Chunk {i+1} {text_chunks[i]}'")
-        # print(f"Chunk {i+2} starts with: '{chunk2_start}...'\n")
+    for i, chunk in enumerate(hybrid_chunks):
+        print(f"Chunk {i+1}:\n\"{chunk}\"\n")
