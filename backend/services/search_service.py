@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from backend.database.models import TextChunk
 from backend.services.embedding_service import model as embedding_model
 
-def find_relevant_chunks(document_id: int, question: str, db: Session, top_k: int = 5) -> list[str]:
+def find_relevant_chunks(document_id: int, question: str, db: Session, top_k: int = 50) -> list[str]:
     """
     Finds the most relevant text chunks from a document based on a user's question.
 

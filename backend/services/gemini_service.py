@@ -18,37 +18,41 @@ genai.configure(api_key=api_key)
 # Using gemini-1.5-flash for speed and cost-effectiveness
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-async def generate_summary(text_to_summarize: str) -> str:
+async def get_answer_from_gemini(context: str, question: str) -> str:
     """
-    Uses the Gemini API to generate a summary for the given text.
+    Uses the Gemini API to generate an answer based on provided context and a question.
 
     Args:
-        text_to_summarize: The text extracted from the PDF.
+        context: The relevant text chunks retrieved from the database.
+        question: The user's question.
 
     Returns:
-        A string containing the AI-generated summary.
+        A string containing the AI-generated answer.
     """
     try:
-        # Create a specific prompt for the summarization task
+        # Construct a detailed, context-aware prompt
         prompt = f"""
-        Please provide a concise, academic-style summary of the following text.
-        Focus on the key findings, methodology, and conclusions.
+        Based *only* on the following context, please provide a clear and concise answer to the question.
+        Do not use any information outside of the provided text. If the answer cannot be found
+        in the context, please state that.
 
         ---
-        TEXT:
-        {text_to_summarize}
+        CONTEXT:
+        {context}
         ---
 
-        SUMMARY:
+        QUESTION:
+        {question}
+        ---
+
+        ANSWER:
         """
 
-        # Use the async version of the API call to not block the server
+        # Use the async version of the API call
         response = await model.generate_content_async(prompt)
-
-        # Return the generated text
         return response.text
 
     except Exception as e:
         # Handle potential API errors
         print(f"An error occurred with the Gemini API: {e}")
-        return "Error: Could not generate a summary."
+        return "Error: Could not generate an answer."

@@ -4,6 +4,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Annotated
+from pydantic import BaseModel
 
 # Import your models and utility functions
 # Adjust paths if you've changed the directory structure
@@ -11,7 +12,13 @@ from backend.database.models import Document, TextChunk
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.utils.text_processing import chunk_text
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
+from backend.services.search_service import find_relevant_chunks
+from backend.services.gemini_service import get_answer_from_gemini
 from .database.database import SessionLocal # Add this if not already present
+
+class ChatRequest(BaseModel):
+    document_id: int
+    question: str
 
 def get_db():
     db = SessionLocal()
@@ -93,3 +100,39 @@ async def upload_pdf(
         db.rollback() # Rollback on any unexpected errors
         # Catch any other unexpected errors
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
+@app.post("/chat")
+async def chat_with_document(request: ChatRequest, db: Session = Depends(get_db)):
+    """
+    Accepts a user question for a specific document and returns a context-aware AI answer.
+    """
+    try:
+        # a. Call find_relevant_chunks() to get the necessary context
+        relevant_chunks = find_relevant_chunks(
+            document_id=request.document_id,
+            question=request.question,
+            db=db
+        )
+
+        if not relevant_chunks:
+            # Handle case where no relevant chunks are found
+            raise HTTPException(
+                status_code=404,
+                detail="Could not find relevant information in the document to answer the question."
+            )
+
+        # Combine the chunks into a single context string
+        context_str = "\n---\n".join(relevant_chunks)
+
+        # b. & c. Construct prompt and call Gemini API
+        answer = await get_answer_from_gemini(context=context_str, question=request.question)
+
+        # d. Return the LLM's answer
+        return {"answer": answer}
+
+    except HTTPException as e:
+        # Re-raise known HTTP exceptions
+        raise e
+    except Exception as e:
+        # Catch any other unexpected errors
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during chat processing: {e}")
