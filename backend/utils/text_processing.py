@@ -37,7 +37,7 @@ def _chunk_long_sentence(text: str, chunk_size: int, chunk_overlap: int) -> list
     return chunks
 
 # --- Main Hybrid Chunking Function ---
-def chunk_text_hybrid(
+def chunk_text(
     text: str, 
     model: SentenceTransformer, 
     similarity_threshold: float = 0.5,
