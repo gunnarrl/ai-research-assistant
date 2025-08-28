@@ -5,6 +5,8 @@ import FileUploadForm from './components/files/FileUploadForm.jsx';
 import PdfViewer from './components/files/PdfViewer.jsx';
 import ChatPane from './components/chat/ChatPane.jsx';
 
+const BACKEND_URL = "http://127.0.0.1:8000";
+
 function App() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -25,32 +27,90 @@ function App() {
     }
   };
 
+  // --- REAL API CALLS ---
+
   const handleFileUpload = async (event) => {
     event.preventDefault();
     if (!selectedFile) {
-      setError("Please select a file first.");
+      setError("Please select a file before uploading.");
       return;
     }
+
     setIsUploading(true);
     setError("");
 
-    // Create a URL for the PDF viewer
-    const fileUrl = URL.createObjectURL(selectedFile);
-    setPdfUrl(fileUrl);
-    
-    // Simulate a successful upload for now
-    setTimeout(() => {
-      const mockDocumentId = 1;
-      setDocumentId(mockDocumentId);
-      setChatHistory([{ sender: 'ai', text: `File ready. Ask me anything about ${selectedFile.name}.` }]);
+    const formData = new FormData();
+    formData.append("file", selectedFile);
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/upload`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || `HTTP error! Status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      setDocumentId(result.document_id);
+
+      const fileUrl = URL.createObjectURL(selectedFile);
+      setPdfUrl(fileUrl);
+      
+      setChatHistory([{ sender: 'ai', text: `File "${selectedFile.name}" is ready. Ask me anything!` }]);
+
+    } catch (err) {
+      setError(err.message);
+      setPdfUrl(null); // Clear viewer on error
+    } finally {
       setIsUploading(false);
-    }, 1000);
+    }
   };
 
-  const handleSendMessage = (question) => {
+  const handleSendMessage = async (question) => {
+    if (!documentId) {
+      setError("An active document is required to chat.");
+      return;
+    }
+
+    // a. Add user's message to history immediately
     const newUserMessage = { sender: 'user', text: question };
-    const mockAiResponse = { sender: 'ai', text: 'This is a placeholder AI response.' };
-    setChatHistory(prev => [...prev, newUserMessage, mockAiResponse]);
+    setChatHistory(prev => [...prev, newUserMessage]);
+    setIsAnswering(true);
+
+    try {
+      // b. Make a fetch call to the POST /chat endpoint
+      const response = await fetch(`${BACKEND_URL}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          document_id: documentId,
+          question: question,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.detail || `HTTP error! Status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      
+      // d. Add the AI's message to the chat history
+      const aiResponse = { sender: 'ai', text: result.answer };
+      setChatHistory(prev => [...prev, aiResponse]);
+
+    } catch (err) {
+      const errorResponse = { sender: 'ai', text: `Sorry, an error occurred: ${err.message}` };
+      setChatHistory(prev => [...prev, errorResponse]);
+    } finally {
+      // c. Reset loading indicator
+      setIsAnswering(false);
+    }
   };
 
   // The main view once a file has been processed
