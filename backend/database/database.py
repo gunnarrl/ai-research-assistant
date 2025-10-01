@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 
 # Define the database URL using credentials from our docker-compose file
-DATABASE_URL = "postgresql+psycopg://admin:password@localhost:5432/ai_research_db"
+DATABASE_URL = "postgresql+psycopg://admin:password@localhost:5433/ai_research_db"
 
 # Create the SQLAlchemy engine
 # The engine is the entry point to the database.
