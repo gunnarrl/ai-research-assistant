@@ -133,6 +133,7 @@ async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]
 
 @app.post("/upload")
 async def upload_pdf(
+    current_user: Annotated[User, Depends(get_current_user)],
     file: Annotated[UploadFile, File(description="A PDF file to process.")],
     db: Session = Depends(get_db)
 ):
@@ -151,8 +152,8 @@ async def upload_pdf(
                 detail="Could not extract text from PDF. It may be empty or image-based."
             )
 
-        # 2. Save document metadata to the database
-        new_document = Document(filename=file.filename)
+        # 2. Save document metadata to the database, now with owner_id
+        new_document = Document(filename=file.filename, owner_id=current_user.id)
         db.add(new_document)
         db.commit()
         db.refresh(new_document)
