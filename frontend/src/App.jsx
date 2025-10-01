@@ -17,18 +17,6 @@ function App() {
   const [isAnswering, setIsAnswering] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
 
-  // When a document is selected, prepare the chat view
-  useEffect(() => {
-    if (selectedDocument) {
-      const fileUrl = URL.createObjectURL(selectedDocument.fileObject);
-      setPdfUrl(fileUrl);
-      setChatHistory([{ sender: 'ai', text: `File "${selectedDocument.filename}" is ready. Ask me anything!` }]);
-
-      // Clean up the object URL when the component unmounts or the document changes
-      return () => URL.revokeObjectURL(fileUrl);
-    }
-  }, [selectedDocument]);
-
   const handleLoginSuccess = (newToken) => {
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
