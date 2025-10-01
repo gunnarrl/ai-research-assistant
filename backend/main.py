@@ -2,6 +2,7 @@
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Annotated
 from pydantic import BaseModel
@@ -15,7 +16,7 @@ from backend.services.embedding_service import generate_embeddings, model as emb
 from backend.services.search_service import find_relevant_chunks
 from backend.services.gemini_service import get_answer_from_gemini
 from .database.database import SessionLocal 
-from backend.auth import hash_password
+from backend.auth import hash_password, verify_password, create_access_token
 
 # Pydantic Models for API requests and responses
 class ChatRequest(BaseModel):
@@ -32,6 +33,11 @@ class UserResponse(BaseModel):
 
     class Config:
         orm_mode = True
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
 
 # Dependency to get the database session
 def get_db():
@@ -68,21 +74,36 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
     """
     Registers a new user.
     """
-    # Check if a user with the given email already exists
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Hash the password
     hashed_pass = hash_password(user.password)
-    
-    # Create the new user
     new_user = User(email=user.email, hashed_password=hashed_pass)
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     
     return new_user
+
+@app.post("/token", response_model=Token)
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    db: Session = Depends(get_db)
+):
+    """
+    Logs in a user and returns an access token.
+    """
+    user = db.query(User).filter(User.email == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = create_access_token(data={"sub": user.email})
+    return {"access_token": access_token, "token_type": "bearer"}
 
 # --- Document and Chat Endpoints ---
 
