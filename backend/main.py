@@ -8,18 +8,32 @@ from pydantic import BaseModel
 
 # Import your models and utility functions
 # Adjust paths if you've changed the directory structure
-from backend.database.models import Document, TextChunk
+from backend.database.models import Document, TextChunk, User
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.utils.text_processing import chunk_text
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks
 from backend.services.gemini_service import get_answer_from_gemini
-from .database.database import SessionLocal # Add this if not already present
+from .database.database import SessionLocal 
+from backend.auth import hash_password
 
+# Pydantic Models for API requests and responses
 class ChatRequest(BaseModel):
     document_id: int
     question: str
 
+class UserCreate(BaseModel):
+    email: str
+    password: str
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+
+    class Config:
+        orm_mode = True
+
+# Dependency to get the database session
 def get_db():
     db = SessionLocal()
     try:
@@ -46,6 +60,31 @@ app.add_middleware(
 @app.get("/health")
 def read_health_check():
     return {"status": "ok"}
+
+# --- User Authentication Endpoints ---
+
+@app.post("/users/register", response_model=UserResponse)
+def create_user(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Registers a new user.
+    """
+    # Check if a user with the given email already exists
+    db_user = db.query(User).filter(User.email == user.email).first()
+    if db_user:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    # Hash the password
+    hashed_pass = hash_password(user.password)
+    
+    # Create the new user
+    new_user = User(email=user.email, hashed_password=hashed_pass)
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return new_user
+
+# --- Document and Chat Endpoints ---
 
 @app.post("/upload")
 async def upload_pdf(
@@ -136,3 +175,4 @@ async def chat_with_document(request: ChatRequest, db: Session = Depends(get_db)
     except Exception as e:
         # Catch any other unexpected errors
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred during chat processing: {e}")
+    
