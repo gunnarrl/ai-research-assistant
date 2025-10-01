@@ -4,8 +4,9 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import Annotated
+from typing import Annotated, List
 from pydantic import BaseModel
+from datetime import datetime
 
 # Import your models and utility functions
 from backend.database.models import Document, TextChunk, User
@@ -36,6 +37,14 @@ class UserResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    
+class DocumentResponse(BaseModel):
+    id: int
+    filename: str
+    upload_date: datetime
+
+    class Config:
+        orm_mode = True
 
 # OAuth2 Scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -130,6 +139,16 @@ async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]
     return current_user
 
 # --- Document and Chat Endpoints ---
+
+@app.get("/documents", response_model=List[DocumentResponse])
+async def read_user_documents(
+    current_user: Annotated[User, Depends(get_current_user)], 
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves a list of all documents uploaded by the current user.
+    """
+    return db.query(Document).filter(Document.owner_id == current_user.id).all()
 
 @app.post("/upload")
 async def upload_pdf(
