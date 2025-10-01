@@ -1,14 +1,13 @@
 # main.py
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Annotated
 from pydantic import BaseModel
 
 # Import your models and utility functions
-# Adjust paths if you've changed the directory structure
 from backend.database.models import Document, TextChunk, User
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.utils.text_processing import chunk_text
@@ -16,7 +15,7 @@ from backend.services.embedding_service import generate_embeddings, model as emb
 from backend.services.search_service import find_relevant_chunks
 from backend.services.gemini_service import get_answer_from_gemini
 from .database.database import SessionLocal 
-from backend.auth import hash_password, verify_password, create_access_token
+from backend.auth import hash_password, verify_password, create_access_token, verify_token
 
 # Pydantic Models for API requests and responses
 class ChatRequest(BaseModel):
@@ -38,6 +37,8 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+# OAuth2 Scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Dependency to get the database session
 def get_db():
@@ -47,12 +48,27 @@ def get_db():
     finally:
         db.close()
 
+# Dependency to get the current user
+def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    email = verify_token(token, credentials_exception)
+    user = db.query(User).filter(User.email == email).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
+
 app = FastAPI(
     title="AI Research Assistant API",
     description="API for the AI Research Assistant application.",
     version="0.1.0",
 )
 
+# CORS configuration
 origins = ["http://localhost:3000", "http://localhost:5173", "https://ai-research-assistant-eight.vercel.app"]
 
 app.add_middleware(
@@ -62,6 +78,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/health")
 def read_health_check():
@@ -97,13 +114,20 @@ async def login_for_access_token(
     user = db.query(User).filter(User.email == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
-            status_code=401,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     
     access_token = create_access_token(data={"sub": user.email})
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/users/me", response_model=UserResponse)
+async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]):
+    """
+    Gets the details of the currently authenticated user.
+    """
+    return current_user
 
 # --- Document and Chat Endpoints ---
 

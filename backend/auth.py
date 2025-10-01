@@ -1,4 +1,5 @@
 # backend/auth.py
+# backend/auth.py
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -29,7 +30,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifies a plain-text password against a hashed password."""
     return pwd_context.verify(plain_password, hashed_password)
 
-# --- JWT Creation ---
+# --- JWT Creation & Verification ---
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Creates a new JWT access token."""
     to_encode = data.copy()
@@ -41,3 +42,14 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def verify_token(token: str, credentials_exception) -> str:
+    """Decodes a JWT, verifies it, and returns the username (email)."""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+        return email
+    except JWTError:
+        raise credentials_exception
