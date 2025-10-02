@@ -1,6 +1,7 @@
 # main.py
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -15,7 +16,7 @@ from backend.utils.text_processing import chunk_text
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks
 from backend.services.gemini_service import get_answer_from_gemini
-from .database.database import SessionLocal 
+from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
 
 # Pydantic Models for API requests and responses
@@ -88,6 +89,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, db: Session):
+    """
+    This function contains the logic to process the PDF in the background.
+    """
+    try:
+        # 1. Extract text from the PDF
+        extracted_text = extract_text_from_pdf(file_bytes)
+        if not extracted_text.strip():
+            # Here you might want to log this error or update the document status
+            print(f"Could not extract text from PDF {filename}. It may be empty or image-based.")
+            return
+
+        # 2. Chunk the extracted text
+        text_chunks = chunk_text(extracted_text, model=embedding_model)
+
+        # 3. Generate embeddings for all text chunks
+        embeddings = generate_embeddings(text_chunks)
+        
+        # 4. Save chunks and their embeddings to the database
+        for i, chunk in enumerate(text_chunks):
+            new_chunk = TextChunk(
+                document_id=document_id,
+                chunk_text=chunk,
+                embedding=embeddings[i]
+            )
+            db.add(new_chunk)
+            
+        db.commit()
+        print(f"Successfully processed and saved chunks for document_id: {document_id}")
+
+    except Exception as e:
+        print(f"An error occurred during background PDF processing: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 @app.get("/health")
 def read_health_check():
@@ -152,6 +188,7 @@ async def read_user_documents(
 
 @app.post("/upload")
 async def upload_pdf(
+    background_tasks: BackgroundTasks,
     current_user: Annotated[User, Depends(get_current_user)],
     file: Annotated[UploadFile, File(description="A PDF file to process.")],
     db: Session = Depends(get_db)
@@ -163,52 +200,33 @@ async def upload_pdf(
     try:
         file_bytes = await file.read()
         
-        # 1. Extract text from the PDF
-        extracted_text = extract_text_from_pdf(file_bytes)
-        if not extracted_text.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="Could not extract text from PDF. It may be empty or image-based."
-            )
-
-        # 2. Save document metadata to the database, now with owner_id
+        # 1. Save document metadata to the database immediately
         new_document = Document(filename=file.filename, owner_id=current_user.id)
         db.add(new_document)
         db.commit()
         db.refresh(new_document)
 
-        # 3. Chunk the extracted text, passing the model
-        text_chunks = chunk_text(extracted_text, model=embedding_model)
+        # 2. Add the processing task to the background
+        db_for_task = SessionLocal()
+        background_tasks.add_task(
+            process_pdf_background, 
+            file_bytes, 
+            file.filename, 
+            new_document.id, 
+            db_for_task
+        )
 
-        # 4. Generate embeddings for all text chunks
-        embeddings = generate_embeddings(text_chunks)
-        
-        # 5. Save chunks and their embeddings to the database
-        for i, chunk in enumerate(text_chunks):
-            new_chunk = TextChunk(
-                document_id=new_document.id,
-                chunk_text=chunk,
-                embedding=embeddings[i]
-            )
-            db.add(new_chunk)
-            
-        db.commit()
+        # 3. Return a success message immediately
+        return {"message": "File upload started. Processing in the background.", "document_id": new_document.id}
 
-        # Return a success message with the new document ID
-        return {"message": "File uploaded and processed successfully.", "document_id": new_document.id}
-
-    except HTTPException as e:
-        db.rollback() # Rollback the transaction on known errors
-        raise e
     except Exception as e:
-        db.rollback() # Rollback on any unexpected errors
-        # Catch any other unexpected errors
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during file upload: {e}")
 
 @app.post("/chat")
 async def chat_with_document(request: ChatRequest, db: Session = Depends(get_db)):
     """
-    Accepts a user question for a specific document and returns a context-aware AI answer.
+    Accepts a user question for a specific document and returns a context-aware AI answer as a stream.
     """
     try:
         # a. Call find_relevant_chunks() to get the necessary context
@@ -228,11 +246,19 @@ async def chat_with_document(request: ChatRequest, db: Session = Depends(get_db)
         # Combine the chunks into a single context string
         context_str = "\n---\n".join(relevant_chunks)
 
-        # b. & c. Construct prompt and call Gemini API
-        answer = await get_answer_from_gemini(context=context_str, question=request.question)
+        # b. Define the async generator for the streaming response
+        async def stream_generator():
+            try:
+                # c. Call the modified Gemini service and yield each chunk
+                async for chunk in get_answer_from_gemini(context=context_str, question=request.question):
+                    yield chunk
+            except Exception as e:
+                # This will catch errors during the streaming process
+                print(f"An error occurred during streaming: {e}")
+                yield "Error: Could not generate a streaming answer."
 
-        # d. Return the LLM's answer
-        return {"answer": answer}
+        # d. Return the StreamingResponse
+        return StreamingResponse(stream_generator(), media_type="text/plain")
 
     except HTTPException as e:
         # Re-raise known HTTP exceptions

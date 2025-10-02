@@ -39,11 +39,13 @@ function App() {
     setChatHistory([{ sender: 'ai', text: `Selected "${doc.filename}". Ask me anything!` }]);
   };
 
-  const handleSendMessage = async (question) => {
+   const handleSendMessage = async (question) => {
     if (!selectedDocument) return;
 
+    // 1. Add user's message and a placeholder for the AI's response
     const newUserMessage = { sender: 'user', text: question };
-    setChatHistory(prev => [...prev, newUserMessage]);
+    const aiPlaceholder = { sender: 'ai', text: '' };
+    setChatHistory(prev => [...prev, newUserMessage, aiPlaceholder]);
     setIsAnswering(true);
 
     try {
@@ -51,7 +53,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // Add token to chat requests
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           document_id: selectedDocument.id,
@@ -59,22 +61,48 @@ function App() {
         }),
       });
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         const errorData = await response.json().catch(() => null);
         throw new Error(errorData?.detail || `HTTP error! Status: ${response.status}`);
       }
 
-      const result = await response.json();
-      const aiResponse = { sender: 'ai', text: result.answer };
-      setChatHistory(prev => [...prev, aiResponse]);
+      // 2. Process the streaming response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        const chunk = decoder.decode(value, { stream: true });
+        
+        // 3. Append the incoming chunk to the last AI message in the history
+        setChatHistory(prev => {
+          const lastMessage = prev[prev.length - 1];
+          if (lastMessage && lastMessage.sender === 'ai') {
+            const updatedLastMessage = { ...lastMessage, text: lastMessage.text + chunk };
+            return [...prev.slice(0, -1), updatedLastMessage];
+          }
+          return prev;
+        });
+      }
 
     } catch (err) {
-      const errorResponse = { sender: 'ai', text: `Sorry, an error occurred: ${err.message}` };
-      setChatHistory(prev => [...prev, errorResponse]);
+      // If an error occurs, update the placeholder with the error message
+      setChatHistory(prev => {
+        const lastMessage = prev[prev.length - 1];
+        if (lastMessage && lastMessage.sender === 'ai') {
+          const updatedLastMessage = { ...lastMessage, text: `Sorry, an error occurred: ${err.message}` };
+          return [...prev.slice(0, -1), updatedLastMessage];
+        }
+        return prev;
+      });
     } finally {
       setIsAnswering(false);
     }
   };
+
 
 
   // --- Conditional Rendering Logic ---

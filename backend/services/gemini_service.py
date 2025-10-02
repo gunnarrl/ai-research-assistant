@@ -48,11 +48,14 @@ async def get_answer_from_gemini(context: str, question: str) -> str:
         ANSWER:
         """
 
-        # Use the async version of the API call
-        response = await model.generate_content_async(prompt)
-        return response.text
+        # Use the async version of the API call with streaming enabled
+        response = await model.generate_content_async(prompt, stream=True)
+
+        # Yield each chunk of the response as it's received
+        async for chunk in response:
+            yield chunk.text
 
     except Exception as e:
         # Handle potential API errors
         print(f"An error occurred with the Gemini API: {e}")
-        return "Error: Could not generate an answer."
+        yield "Error: Could not generate an answer."
