@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import ChatWindow from './ChatWindow';
 import ChatInput from './ChatInput';
 
-const ChatPane = ({ chatHistory, onSendMessage, isLoading }) => {
+const ChatPane = ({ chatHistory, onSendMessage, isLoading, onReturnToDashboard }) => {
   const [isOpen, setIsOpen] = useState(true);
 
   if (!isOpen) {
@@ -20,6 +20,10 @@ const ChatPane = ({ chatHistory, onSendMessage, isLoading }) => {
   return (
     <div className="w-full md:w-1/2 lg:w-1/3 flex flex-col bg-white shadow-lg border-l border-gray-200 h-full">
       <div className="p-4 border-b flex justify-between items-center">
+        {/* Add the "Back" button here */}
+        <button onClick={onReturnToDashboard} className="text-sm text-blue-600 hover:underline">
+          &larr; Back to Dashboard
+        </button>
         <h2 className="text-xl font-bold">Chat</h2>
         <button onClick={() => setIsOpen(false)} className="text-gray-500 hover:text-gray-800">&times;</button>
       </div>

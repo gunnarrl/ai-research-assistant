@@ -39,6 +39,11 @@ function App() {
     setChatHistory([{ sender: 'ai', text: `Selected "${doc.filename}". Ask me anything!` }]);
   };
 
+  const handleReturnToDashboard = () => {
+    setSelectedDocument(null);
+    setChatHistory([]); // Clear chat history when going back
+  };
+
    const handleSendMessage = async (question) => {
     if (!selectedDocument) return;
 
@@ -110,17 +115,15 @@ function App() {
   if (selectedDocument) {
     return (
       <div className="flex w-screen h-screen font-sans">
-        {/* Simplified view: In a real app, you'd fetch the PDF blob to view it */}
-        <div className="flex-1 flex items-center justify-center bg-gray-100 border-r border-gray-200">
-            <p className="text-gray-600 text-center">
-                Chatting about <br/>
-                <strong className="font-mono">{selectedDocument.filename}</strong>
-            </p>
+        <div className="w-2/3 h-full border-r border-gray-200">
+          <PdfViewer pdfUrl={pdfUrl} />
         </div>
+          {/* ... (left side of the chat view) ... */}
         <ChatPane
           chatHistory={chatHistory}
           onSendMessage={handleSendMessage}
           isLoading={isAnswering}
+          onReturnToDashboard={handleReturnToDashboard} // Pass the new function as a prop
         />
       </div>
     );
