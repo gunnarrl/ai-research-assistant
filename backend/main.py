@@ -1,7 +1,11 @@
 # main.py
 
+import os
+import httpx
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -20,6 +24,9 @@ from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
 
 # Pydantic Models for API requests and responses
+class GoogleLoginRequest(BaseModel):
+    code: str
+
 class ChatRequest(BaseModel):
     document_id: int
     question: str
@@ -142,6 +149,74 @@ def read_health_check():
     return {"status": "ok"}
 
 # --- User Authentication Endpoints ---
+
+@app.post("/auth/google", response_model=Token)
+async def auth_google(request: GoogleLoginRequest, db: Session = Depends(get_db)):
+    """
+    Handles the Google OAuth 2.0 authorization code flow.
+    """
+    # This is the URL your frontend is running on
+    # For the code exchange to work, this MUST match the "Authorized redirect URIs"
+    # you configured in your Google Cloud project.
+    REDIRECT_URI = "http://localhost:5173"
+
+    try:
+        # Step 1: Exchange the authorization code for an ID token
+        async with httpx.AsyncClient() as client:
+            response = await client.post("https://oauth2.googleapis.com/token", data={
+                "code": request.code,
+                "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                "redirect_uri": REDIRECT_URI,
+                "grant_type": "authorization_code",
+            })
+            response.raise_for_status()
+            token_data = response.json()
+            google_id_token = token_data.get("id_token")
+
+            if not google_id_token:
+                raise HTTPException(status_code=400, detail="Could not retrieve ID token from Google.")
+
+        # Step 2: Verify the ID token and get user info
+        try:
+            id_info = id_token.verify_oauth2_token(
+                google_id_token, google_requests.Request(), os.getenv("GOOGLE_CLIENT_ID")
+            )
+            user_email = id_info.get("email")
+            if not user_email:
+                raise HTTPException(status_code=400, detail="Email not found in Google token.")
+
+        except ValueError as e:
+            raise HTTPException(status_code=401, detail=f"Invalid Google token: {e}")
+
+        # Step 3: Log in or register the user in your database
+        user = db.query(User).filter(User.email == user_email).first()
+
+        if not user:
+            # User doesn't exist, create a new one.
+            # We add a placeholder for the password hash since it's required by the model,
+            # but this user will never log in with a password.
+            new_user = User(
+                email=user_email,
+                hashed_password=hash_password("PLACEHOLDER_PASSWORD_FOR_OAUTH") # Or generate a random string
+            )
+            db.add(new_user)
+            db.commit()
+            db.refresh(new_user)
+            user = new_user
+
+        # Step 4: Create a JWT for the user and return it
+        access_token = create_access_token(data={"sub": user.email})
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    except httpx.HTTPStatusError as e:
+        # Handle errors from the request to Google
+        print(f"Error exchanging code with Google: {e.response.text}")
+        raise HTTPException(status_code=400, detail="Error communicating with Google.")
+    except Exception as e:
+        print(f"An unexpected error occurred during Google auth: {e}")
+        raise HTTPException(status_code=500, detail="An internal error occurred.")
+
 
 @app.post("/users/register", response_model=UserResponse)
 def create_user(user: UserCreate, db: Session = Depends(get_db)):
