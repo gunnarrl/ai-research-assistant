@@ -43,6 +43,7 @@ class DocumentResponse(BaseModel):
     id: int
     filename: str
     upload_date: datetime
+    status: str
 
     class Config:
         orm_mode = True
@@ -94,20 +95,24 @@ def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, d
     This function contains the logic to process the PDF in the background.
     """
     try:
-        # 1. Extract text from the PDF
-        extracted_text = extract_text_from_pdf(file_bytes)
-        if not extracted_text.strip():
-            # Here you might want to log this error or update the document status
-            print(f"Could not extract text from PDF {filename}. It may be empty or image-based.")
+        # Fetch the document to update its status
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            print(f"Document with ID {document_id} not found for background processing.")
             return
 
-        # 2. Chunk the extracted text
-        text_chunks = chunk_text(extracted_text, model=embedding_model)
+        # 1. Extract text, chunk, and generate embeddings
+        extracted_text = extract_text_from_pdf(file_bytes)
+        if not extracted_text.strip():
+            print(f"Could not extract text from PDF {filename}.")
+            doc.status = "FAILED"
+            db.commit()
+            return
 
-        # 3. Generate embeddings for all text chunks
+        text_chunks = chunk_text(extracted_text, model=embedding_model)
         embeddings = generate_embeddings(text_chunks)
         
-        # 4. Save chunks and their embeddings to the database
+        # 2. Save chunks and their embeddings
         for i, chunk in enumerate(text_chunks):
             new_chunk = TextChunk(
                 document_id=document_id,
@@ -115,13 +120,20 @@ def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, d
                 embedding=embeddings[i]
             )
             db.add(new_chunk)
-            
+        
+        # 3. Update document status to COMPLETED
+        doc.status = "COMPLETED"
         db.commit()
         print(f"Successfully processed and saved chunks for document_id: {document_id}")
 
     except Exception as e:
-        print(f"An error occurred during background PDF processing: {e}")
+        print(f"An error occurred during background PDF processing for doc ID {document_id}: {e}")
         db.rollback()
+        # Update status to FAILED on error
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if doc:
+            doc.status = "FAILED"
+            db.commit()
     finally:
         db.close()
 
@@ -200,8 +212,12 @@ async def upload_pdf(
     try:
         file_bytes = await file.read()
         
-        # 1. Save document metadata to the database immediately
-        new_document = Document(filename=file.filename, owner_id=current_user.id)
+        # 1. Save document metadata with "PROCESSING" status
+        new_document = Document(
+            filename=file.filename, 
+            owner_id=current_user.id, 
+            status="PROCESSING" # Set initial status
+        )
         db.add(new_document)
         db.commit()
         db.refresh(new_document)

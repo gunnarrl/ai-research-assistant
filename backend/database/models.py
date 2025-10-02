@@ -20,6 +20,8 @@ class Document(Base):
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String, nullable=False)
     upload_date = Column(DateTime(timezone=True), server_default=func.now())
+    # Add the following line
+    status = Column(String, nullable=False, default="PENDING")
     owner_id = Column(Integer, ForeignKey("users.id"))
 
     # Establish a many-to-one relationship with User
