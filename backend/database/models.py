@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, LargeBinary
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -19,10 +19,12 @@ class Document(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     filename = Column(String, nullable=False)
+    # Add the file_content column below
+    file_content = Column(LargeBinary, nullable=True) # Use nullable=True for the migration
     upload_date = Column(DateTime(timezone=True), server_default=func.now())
-    # Add the following line
     status = Column(String, nullable=False, default="PENDING")
     owner_id = Column(Integer, ForeignKey("users.id"))
+
 
     # Establish a many-to-one relationship with User
     owner = relationship("User", back_populates="documents")

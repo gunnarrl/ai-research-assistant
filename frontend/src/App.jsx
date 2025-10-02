@@ -29,14 +29,35 @@ function App() {
   };
 
   const handleSelectDocument = async (doc) => {
-    // We only have the filename, we need to fetch the file blob to display it.
-    // This is a simplified approach. For larger files, you'd get a direct URL from a cloud storage.
-    // For now, we simulate selecting the document by just setting it.
-    // NOTE: For the PDF viewer to work, we'd need to adjust the flow to have access to the file blob.
-    // We will simplify for now and pass a placeholder, focusing on the chat functionality.
+    // This function will now fetch the PDF content
     setSelectedDocument(doc);
-    setPdfUrl(null); // Cannot display PDF without the file blob, so we clear it.
     setChatHistory([{ sender: 'ai', text: `Selected "${doc.filename}". Ask me anything!` }]);
+    setPdfUrl(null); // Clear previous PDF
+
+    try {
+        const response = await fetch(`${BACKEND_URL}/documents/${doc.id}/file`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.status === 401) {
+            handleLogout();
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error("Could not fetch PDF file.");
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        setPdfUrl(url);
+
+    } catch (err) {
+        console.error("Failed to load PDF:", err);
+        // Optionally set an error state to show in the UI
+    }
   };
 
   const handleReturnToDashboard = () => {
@@ -115,15 +136,16 @@ function App() {
   if (selectedDocument) {
     return (
       <div className="flex w-screen h-screen font-sans">
-        <div className="w-2/3 h-full border-r border-gray-200">
+        {/* Replace the simplified view with the actual PdfViewer component */}
+        <div className="flex-1">
           <PdfViewer pdfUrl={pdfUrl} />
         </div>
-          {/* ... (left side of the chat view) ... */}
+        
         <ChatPane
           chatHistory={chatHistory}
           onSendMessage={handleSendMessage}
           isLoading={isAnswering}
-          onReturnToDashboard={handleReturnToDashboard} // Pass the new function as a prop
+          onReturnToDashboard={handleReturnToDashboard}
         />
       </div>
     );

@@ -4,7 +4,7 @@ import os
 import httpx
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
-from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks, Response
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -280,24 +280,23 @@ async def upload_pdf(
     file: Annotated[UploadFile, File(description="A PDF file to process.")],
     db: Session = Depends(get_db)
 ):
-    # a. Validate file type
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail="Invalid file type. Please upload a PDF.")
 
     try:
         file_bytes = await file.read()
         
-        # 1. Save document metadata with "PROCESSING" status
+        # Now, include the file_bytes in the new document record
         new_document = Document(
             filename=file.filename, 
             owner_id=current_user.id, 
-            status="PROCESSING" # Set initial status
+            status="PROCESSING",
+            file_content=file_bytes # Save the file content
         )
         db.add(new_document)
         db.commit()
         db.refresh(new_document)
 
-        # 2. Add the processing task to the background
         db_for_task = SessionLocal()
         background_tasks.add_task(
             process_pdf_background, 
@@ -307,12 +306,30 @@ async def upload_pdf(
             db_for_task
         )
 
-        # 3. Return a success message immediately
         return {"message": "File upload started. Processing in the background.", "document_id": new_document.id}
 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred during file upload: {e}")
+
+@app.get("/documents/{document_id}/file")
+async def get_document_file(
+    document_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves the raw PDF file for a given document.
+    """
+    document = db.query(Document).filter(
+        Document.id == document_id, 
+        Document.owner_id == current_user.id
+    ).first()
+
+    if not document or not document.file_content:
+        raise HTTPException(status_code=404, detail="Document not found or file content is missing.")
+
+    return Response(content=document.file_content, media_type="application/pdf")
 
 @app.post("/chat")
 async def chat_with_document(request: ChatRequest, db: Session = Depends(get_db)):
