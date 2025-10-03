@@ -34,6 +34,18 @@ class Document(Base):
     # Establish a one-to-many relationship with TextChunk
     chunks = relationship("TextChunk", back_populates="document", cascade="all, delete-orphan")
 
+    citations = relationship("Citation", back_populates="document", cascade="all, delete-orphan")
+
+class Citation(Base):
+    __tablename__ = "citations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=False)
+    data = Column(JSON, nullable=False)
+
+    # Establish a many-to-one relationship with Document
+    document = relationship("Document", back_populates="citations")
+
 class TextChunk(Base):
     __tablename__ = "text_chunks"
 

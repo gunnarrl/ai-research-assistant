@@ -5,6 +5,7 @@ import json
 import asyncio
 import google.generativeai as genai
 from dotenv import load_dotenv
+from typing import List, Dict
 
 # Load environment variables from .env file
 load_dotenv()
@@ -182,4 +183,69 @@ def extract_structured_data_sync(context: str) -> dict:
     except Exception as e:
         print(f"An error occurred with the Gemini API during data extraction: {e}")
         return {"error": "Could not extract structured data."}
+    
+async def parse_references_from_text(context: str) -> List[Dict]:
+    """
+    Uses the Gemini API to parse a block of text containing bibliographic references
+    into a structured list of dictionaries.
+
+    Args:
+        context: The text of the "References" or "Bibliography" section.
+
+    Returns:
+        A list of dictionaries, each representing a single citation.
+    """
+    try:
+        prompt = f"""
+        Act as a bibliographic assistant. Your task is to parse the provided text, which contains a list of academic references, and convert it into a structured JSON array.
+
+        Each object in the array should represent a single reference and have the following keys: "title", "authors", and "year".
+
+        - "authors" should be a list of author names.
+        - If a value for a key cannot be found, use an empty string or an empty list.
+        - Ignore reference numbers like "[1]" or "1.".
+
+        Provide the output *only* in a valid JSON format.
+
+        EXAMPLE INPUT:
+        REFERENCES
+        [1] C. D. Newman, R. S. AlSuhaibani, M. J. Decker, A. Peruma, D. Kaushik, M. W. Mkaouer, and E. Hill, "On the generation, structure, and semantics of grammar patterns in source code identifiers." Journal of Systems and Software, vol. 170, p. 110740, 2020.
+        [2] X. Hou, Y. Zhao, Y. Liu, Z. Yang, K. Wang, L. Li, X. Luo, D. Lo, J. Grundy, and H. Wang, "Large language models for software engineering: A systematic literature review," ACM Transactions on Software Engineering and Methodology, vol. 33, p. 1-79, Nov. 2024.
+
+        EXAMPLE OUTPUT:
+        [
+          {{
+            "title": "On the generation, structure, and semantics of grammar patterns in source code identifiers.",
+            "authors": ["C. D. Newman", "R. S. AlSuhaibani", "M. J. Decker", "A. Peruma", "D. Kaushik", "M. W. Mkaouer", "E. Hill"],
+            "year": "2020"
+          }},
+          {{
+            "title": "Large language models for software engineering: A systematic literature review,",
+            "authors": ["X. Hou", "Y. Zhao", "Y. Liu", "Z. Yang", "K. Wang", "L. Li", "X. Luo", "D. Lo", "J. Grundy", "H. Wang"],
+            "year": "2024"
+          }}
+        ]
+
+        ---
+        CONTEXT TO PARSE:
+        {context}
+        ---
+
+        JSON OUTPUT:
+        """
+
+        response = await model.generate_content_async(prompt)
+        
+        # Clean the response to ensure it's valid JSON
+        json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        
+        return json.loads(json_text)
+
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON from Gemini API response during citation parsing: {e}")
+        print(f"Raw response was: {response.text}")
+        return [{"error": "Failed to parse JSON from AI response."}]
+    except Exception as e:
+        print(f"An error occurred with the Gemini API during citation parsing: {e}")
+        return [{"error": "Could not parse citations."}]
 
