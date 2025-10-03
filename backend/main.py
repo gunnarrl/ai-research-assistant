@@ -518,3 +518,33 @@ async def chat_with_multiple_documents(request: MultiChatRequest, db: Session = 
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred during multi-chat processing: {e}")
+    
+@app.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Deletes a document and all its associated data for the current user.
+    """
+    # Find the document ensuring it belongs to the current user
+    doc_to_delete = db.query(Document).filter(
+        Document.id == document_id,
+        Document.owner_id == current_user.id
+    ).first()
+
+    if not doc_to_delete:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found or you do not have permission to delete it."
+        )
+
+    try:
+        db.delete(doc_to_delete)
+        db.commit()
+        # Return a 204 No Content response, which is standard for successful DELETE operations
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"An error occurred while deleting the document: {e}")

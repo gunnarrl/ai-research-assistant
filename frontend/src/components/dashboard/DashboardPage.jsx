@@ -76,6 +76,37 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat }) 
     }
   };
 
+  const handleDeleteDocument = async (docId) => {
+    // Confirm with the user before deleting
+    if (!window.confirm("Are you sure you want to permanently delete this document?")) {
+      return;
+    }
+
+    setError('');
+    try {
+      const response = await fetch(`${BACKEND_URL}/documents/${docId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (response.status === 401) {
+        onLogout();
+        return;
+      }
+      if (!response.ok) {
+        throw new Error('Failed to delete document.');
+      }
+
+      // If successful, remove the document from the local state for an immediate UI update
+      setDocuments(prevDocs => prevDocs.filter(doc => doc.id !== docId));
+      
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
   const handleCheckboxChange = (docId) => {
     setSelectedDocs(prevSelected => {
       if (prevSelected.includes(docId)) {
@@ -208,15 +239,32 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat }) 
                       </div>
 
                       {/* Status Indicators */}
-                      {isProcessing && (
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm text-gray-500">Processing...</span>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
-                        </div>
-                      )}
-                       {isFailed && (
-                         <span className="text-sm text-red-500 font-semibold">Processing Failed</span>
-                       )}
+                      {/* Status Indicators & Delete Button */}
+                      <div className="flex items-center space-x-4">
+                        {isProcessing && (
+                          <div className="flex items-center space-x-2">
+                            <span className="text-sm text-gray-500">Processing...</span>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                          </div>
+                        )}
+                        {isFailed && (
+                          <span className="text-sm text-red-500 font-semibold">Processing Failed</span>
+                        )}
+                        
+                        {/* Delete Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent the row's click event from firing
+                            handleDeleteDocument(doc.id);
+                          }}
+                          className="text-gray-400 hover:text-red-600 focus:outline-none"
+                          title="Delete document"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   );
                 })
