@@ -143,4 +143,43 @@ async def extract_structured_data(context: str) -> dict:
     except Exception as e:
         print(f"An error occurred with the Gemini API during data extraction: {e}")
         return {"error": "Could not extract structured data."}
+    
+def extract_structured_data_sync(context: str) -> dict:
+    """
+    Synchronous version of the data extraction function.
+    """
+    try:
+        prompt = f"""
+        Act as a specialized research analyst. Your task is to extract specific pieces of information 
+        from the provided text of a research paper.
+
+        Based *only* on the text below, extract the following information:
+        1. "methodology": A brief description of the methodology used in the paper.
+        2. "dataset": A description of the dataset used, if mentioned. If not mentioned, use an empty string.
+        3. "key_findings": A list of key findings or conclusions from the paper.
+
+        Provide the output *only* in a valid JSON format with the following keys: 
+        "methodology", "dataset", "key_findings".
+
+        ---
+        CONTEXT:
+        {context}
+        ---
+
+        JSON OUTPUT:
+        """
+        # Use the synchronous version of the API call
+        response = model.generate_content(prompt)
+        json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        return json.loads(json_text)
+
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON from Gemini API response: {e}")
+        # Use response.text if it exists, otherwise provide a fallback.
+        raw_text = getattr(response, 'text', 'No response text available.')
+        print(f"Raw response was: {raw_text}")
+        return {"error": "Failed to parse structured data from AI response."}
+    except Exception as e:
+        print(f"An error occurred with the Gemini API during data extraction: {e}")
+        return {"error": "Could not extract structured data."}
 

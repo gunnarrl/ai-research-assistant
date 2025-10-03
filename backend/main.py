@@ -3,7 +3,6 @@
 import os
 import httpx
 import asyncio
-from backend.services.gemini_service import extract_structured_data
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks, Response
@@ -22,7 +21,7 @@ from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.utils.text_processing import chunk_text
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks, find_relevant_chunks_multi
-from backend.services.gemini_service import get_answer_from_gemini
+from backend.services.gemini_service import get_answer_from_gemini, extract_structured_data_sync
 from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
 
@@ -115,58 +114,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def process_pdf_background_sync(file_bytes: bytes, filename: str, document_id: int, db: Session):
+def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, db: Session):
     """
-    Synchronous wrapper to run the async PDF processing in a background task.
-    """
-    asyncio.run(process_pdf_background_async(file_bytes, filename, document_id, db))
-
-async def process_pdf_background_async(file_bytes: bytes, filename: str, document_id: int, db: Session):
-    """
-    This function contains the async logic to process the PDF in the background.
+    This function contains the logic to process the PDF in the background.
     """
     try:
-        # Fetch the document to update its status
         doc = db.query(Document).filter(Document.id == document_id).first()
         if not doc:
             print(f"Document with ID {document_id} not found for background processing.")
             return
 
-        # 1. Extract text
         extracted_text = extract_text_from_pdf(file_bytes)
         if not extracted_text.strip():
-            print(f"Could not extract text from PDF {filename}.")
             doc.status = "FAILED"
             db.commit()
             return
 
-        # 2. Extract structured data from the full text
         print(f"Extracting structured data for document_id: {document_id}")
-        structured_data = await extract_structured_data(extracted_text)
-        doc.structured_data = structured_data # Assign the extracted data to the model
+        structured_data = extract_structured_data_sync(extracted_text)
+        doc.structured_data = structured_data
 
-        # 3. Chunk, generate embeddings, and save
         print(f"Chunking and embedding document_id: {document_id}")
         text_chunks = chunk_text(extracted_text, model=embedding_model)
         embeddings = generate_embeddings(text_chunks)
         
         for i, chunk in enumerate(text_chunks):
-            new_chunk = TextChunk(
-                document_id=document_id,
-                chunk_text=chunk,
-                embedding=embeddings[i]
-            )
+            new_chunk = TextChunk(document_id=document_id, chunk_text=chunk, embedding=embeddings[i])
             db.add(new_chunk)
         
-        # 4. Update document status to COMPLETED and commit all changes
         doc.status = "COMPLETED"
         db.commit()
         print(f"Successfully processed and saved document_id: {document_id}")
 
     except Exception as e:
-        print(f"An error occurred during async background processing for doc ID {document_id}: {e}")
+        print(f"An error occurred during background PDF processing for doc ID {document_id}: {e}")
         db.rollback()
-        # Update status to FAILED on error
         doc = db.query(Document).filter(Document.id == document_id).first()
         if doc:
             doc.status = "FAILED"
@@ -329,7 +311,7 @@ async def upload_pdf(
 
         db_for_task = SessionLocal()
         background_tasks.add_task(
-            process_pdf_background_sync, 
+            process_pdf_background, 
             file_bytes, 
             file.filename, 
             new_document.id, 
@@ -463,7 +445,7 @@ async def import_from_url(
         # Start the background processing task
         db_for_task = SessionLocal()
         background_tasks.add_task(
-            process_pdf_background_sync,
+            process_pdf_background,
             file_bytes,
             request.title,
             new_document.id,
