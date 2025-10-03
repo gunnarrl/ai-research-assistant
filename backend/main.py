@@ -11,6 +11,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Annotated, List
 from pydantic import BaseModel
+import arxiv
 from datetime import datetime
 
 # Import your models and utility functions
@@ -45,6 +46,12 @@ class UserResponse(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class ArxivArticle(BaseModel):
+    title: str
+    authors: List[str]
+    summary: str
+    pdf_url: str
     
 class DocumentResponse(BaseModel):
     id: int
@@ -374,4 +381,26 @@ async def chat_with_document(request: ChatRequest, db: Session = Depends(get_db)
     except Exception as e:
         # Catch any other unexpected errors
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred during chat processing: {e}")
-    
+
+@app.get("/arxiv/search", response_model=List[ArxivArticle])
+def search_arxiv(query: str, max_results: int = 5):
+    """
+    Searches the arXiv API for papers matching the query.
+    """
+    try:
+        search = arxiv.Search(
+            query=query,
+            max_results=max_results,
+            sort_by=arxiv.SortCriterion.Relevance
+        )
+        results = []
+        for r in search.results():
+            results.append(ArxivArticle(
+                title=r.title,
+                authors=[a.name for a in r.authors],
+                summary=r.summary,
+                pdf_url=r.pdf_url
+            ))
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred while searching arXiv: {e}")
