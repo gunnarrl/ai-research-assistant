@@ -122,29 +122,3 @@ async def extract_structured_data(context: str) -> dict:
         print(f"An error occurred with the Gemini API during data extraction: {e}")
         return {"error": "Could not extract structured data."}
 
-
-# --- Testing Block ---
-if __name__ == '__main__':
-    # A sample text snippet from the user's uploaded paper for testing
-    sample_context = """
-    Our study evaluates four popular LLMS on their ability to analyze grammatical patterns and suggest 
-    improvements for 496 method names extracted from Python-based Jupyter Notebooks. Our findings show that the LLMs 
-    are somewhat effective in analyzing these method names and generally follow good naming practices, like starting method 
-    names with verbs. However, their inconsistent handling of domain-specific terminology and only moderate agreement with 
-    human annotations indicate that automated suggestions require human evaluation. This work provides foundational insights for 
-    improving the quality of scientific code through AI automation.
-    
-    In this study, we utilize the dataset made available by Wong et al. [15]. In their study, the authors manually reviewed 691 
-    method names extracted from 384 Jupyter Notebooks, which were randomly sampled from a larger dataset of 847,881 
-    Python-based Jupyter Notebooks, which were collected from public GitHub repositories by Grotov et al. [12].
-    """
-
-    async def main():
-        print("--- Testing Structured Data Extraction ---")
-        extracted_data = await extract_structured_data(sample_context)
-        print("\n--- Extracted Data ---")
-        # Pretty print the resulting dictionary
-        print(json.dumps(extracted_data, indent=2))
-
-    # Run the async main function
-    asyncio.run(main())

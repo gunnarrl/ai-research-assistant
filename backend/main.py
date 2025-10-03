@@ -110,9 +110,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, db: Session):
+def process_pdf_background_sync(file_bytes: bytes, filename: str, document_id: int, db: Session):
     """
-    This function contains the logic to process the PDF in the background.
+    Synchronous wrapper to run the async PDF processing in a background task.
+    """
+    asyncio.run(process_pdf_background_async(file_bytes, filename, document_id, db))
+
+async def process_pdf_background_async(file_bytes: bytes, filename: str, document_id: int, db: Session):
+    """
+    This function contains the async logic to process the PDF in the background.
     """
     try:
         # Fetch the document to update its status
@@ -121,7 +127,7 @@ def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, d
             print(f"Document with ID {document_id} not found for background processing.")
             return
 
-        # 1. Extract text, chunk, and generate embeddings
+        # 1. Extract text
         extracted_text = extract_text_from_pdf(file_bytes)
         if not extracted_text.strip():
             print(f"Could not extract text from PDF {filename}.")
@@ -129,10 +135,16 @@ def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, d
             db.commit()
             return
 
+        # 2. Extract structured data from the full text
+        print(f"Extracting structured data for document_id: {document_id}")
+        structured_data = await extract_structured_data(extracted_text)
+        doc.structured_data = structured_data # Assign the extracted data to the model
+
+        # 3. Chunk, generate embeddings, and save
+        print(f"Chunking and embedding document_id: {document_id}")
         text_chunks = chunk_text(extracted_text, model=embedding_model)
         embeddings = generate_embeddings(text_chunks)
         
-        # 2. Save chunks and their embeddings
         for i, chunk in enumerate(text_chunks):
             new_chunk = TextChunk(
                 document_id=document_id,
@@ -141,13 +153,13 @@ def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, d
             )
             db.add(new_chunk)
         
-        # 3. Update document status to COMPLETED
+        # 4. Update document status to COMPLETED and commit all changes
         doc.status = "COMPLETED"
         db.commit()
-        print(f"Successfully processed and saved chunks for document_id: {document_id}")
+        print(f"Successfully processed and saved document_id: {document_id}")
 
     except Exception as e:
-        print(f"An error occurred during background PDF processing for doc ID {document_id}: {e}")
+        print(f"An error occurred during async background processing for doc ID {document_id}: {e}")
         db.rollback()
         # Update status to FAILED on error
         doc = db.query(Document).filter(Document.id == document_id).first()
@@ -312,7 +324,7 @@ async def upload_pdf(
 
         db_for_task = SessionLocal()
         background_tasks.add_task(
-            process_pdf_background, 
+            process_pdf_background_sync, 
             file_bytes, 
             file.filename, 
             new_document.id, 
@@ -446,7 +458,7 @@ async def import_from_url(
         # Start the background processing task
         db_for_task = SessionLocal()
         background_tasks.add_task(
-            process_pdf_background,
+            process_pdf_background_sync,
             file_bytes,
             request.title,
             new_document.id,
