@@ -2,6 +2,8 @@
 
 import os
 import httpx
+import asyncio
+from backend.services.gemini_service import extract_structured_data
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks, Response
