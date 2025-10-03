@@ -1,4 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, LargeBinary
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -23,6 +24,7 @@ class Document(Base):
     file_content = Column(LargeBinary, nullable=True) # Use nullable=True for the migration
     upload_date = Column(DateTime(timezone=True), server_default=func.now())
     status = Column(String, nullable=False, default="PENDING")
+    structured_data = Column(JSON, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
 
 
