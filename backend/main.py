@@ -419,10 +419,14 @@ async def import_from_url(
     """
     Downloads a PDF from a URL and processes it in the background.
     """
+    # --- ADD THIS LINE FOR DEBUGGING ---
+    print(f"Attempting to import from URL: {request.pdf_url}")
+
     try:
         # Asynchronously download the PDF content
+        # Added a timeout to prevent hanging on slow responses
         async with httpx.AsyncClient() as client:
-            response = await client.get(request.pdf_url)
+            response = await client.get(request.pdf_url, follow_redirects=True, timeout=30.0)
             response.raise_for_status()  # Will raise an exception for 4xx/5xx responses
             file_bytes = response.content
 
@@ -450,7 +454,12 @@ async def import_from_url(
         return {"message": "File import started. Processing in the background.", "document_id": new_document.id}
 
     except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=400, detail=f"Could not download the file from the provided URL: {e.response.status_code}")
+        # --- IMPROVED ERROR MESSAGE ---
+        error_detail = f"Could not download file. The server at the URL responded with status {e.response.status_code}."
+        print(f"HTTPStatusError: {error_detail} for URL: {request.pdf_url}")
+        raise HTTPException(status_code=400, detail=error_detail)
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during file import: {e}")
+        # --- IMPROVED ERROR MESSAGE ---
+        print(f"An unexpected error occurred during import: {e}")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")

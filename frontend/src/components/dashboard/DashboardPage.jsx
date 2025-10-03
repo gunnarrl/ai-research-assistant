@@ -134,7 +134,7 @@ const DashboardPage = ({ token, onSelectDocument, onLogout }) => {
         <div className="border-t border-gray-200 my-8"></div>
 
         <div>
-          <ArXivSearch />
+          <ArXivSearch token={token} onImportSuccess={fetchDocuments} />
         </div>
 
         <div>
