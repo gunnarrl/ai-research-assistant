@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Header from '../Header'; 
 import FileUploadForm from '../files/FileUploadForm';
+import ArXivSearch from './ArXivSearch';
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
@@ -129,7 +130,13 @@ const DashboardPage = ({ token, onSelectDocument, onLogout }) => {
             hasFile={!!selectedFile}
           />
         </div>
-        
+
+        <div className="border-t border-gray-200 my-8"></div>
+
+        <div>
+          <ArXivSearch />
+        </div>
+
         <div>
           <h3 className="text-xl font-bold text-gray-800 mb-4">Existing Documents</h3>
           {isLoading ? (

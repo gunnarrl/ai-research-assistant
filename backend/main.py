@@ -52,7 +52,11 @@ class ArxivArticle(BaseModel):
     authors: List[str]
     summary: str
     pdf_url: str
-    
+
+class ImportFromUrlRequest(BaseModel):
+    pdf_url: str
+    title: str
+
 class DocumentResponse(BaseModel):
     id: int
     filename: str
@@ -404,3 +408,49 @@ def search_arxiv(query: str, max_results: int = 5):
         return results
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred while searching arXiv: {e}")
+    
+@app.post("/import-from-url")
+async def import_from_url(
+    request: ImportFromUrlRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Downloads a PDF from a URL and processes it in the background.
+    """
+    try:
+        # Asynchronously download the PDF content
+        async with httpx.AsyncClient() as client:
+            response = await client.get(request.pdf_url)
+            response.raise_for_status()  # Will raise an exception for 4xx/5xx responses
+            file_bytes = response.content
+
+        # Create a new document record in the database
+        new_document = Document(
+            filename=request.title,
+            owner_id=current_user.id,
+            status="PROCESSING",
+            file_content=file_bytes
+        )
+        db.add(new_document)
+        db.commit()
+        db.refresh(new_document)
+
+        # Start the background processing task
+        db_for_task = SessionLocal()
+        background_tasks.add_task(
+            process_pdf_background,
+            file_bytes,
+            request.title,
+            new_document.id,
+            db_for_task
+        )
+
+        return {"message": "File import started. Processing in the background.", "document_id": new_document.id}
+
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=400, detail=f"Could not download the file from the provided URL: {e.response.status_code}")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during file import: {e}")
