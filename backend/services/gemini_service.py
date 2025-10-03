@@ -20,45 +20,67 @@ genai.configure(api_key=api_key)
 # Using gemini-1.5-flash for speed and cost-effectiveness
 model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
-async def get_answer_from_gemini(context: str, question: str) -> str:
+async def get_answer_from_gemini(context: str, question: str, is_multi_doc: bool = False) -> str:
     """
     Uses the Gemini API to generate an answer based on provided context and a question.
+    Uses a different prompt for multi-document synthesis questions.
 
     Args:
         context: The relevant text chunks retrieved from the database.
         question: The user's question.
+        is_multi_doc: Flag to indicate if the context is from multiple documents.
 
     Returns:
         A string containing the AI-generated answer.
     """
     try:
-        # Construct a detailed, context-aware prompt
-        prompt = f"""
-        Based *only* on the following context, please provide a clear and concise answer to the question.
-        Do not use any information outside of the provided text. If the answer cannot be found
-        in the context, please state that.
+        # Choose the prompt based on the context type
+        if is_multi_doc:
+            prompt = f"""
+            You are a research assistant with expertise in synthesizing information from multiple sources.
+            Based on the context provided from several documents below, please provide a comprehensive answer to the question.
 
-        ---
-        CONTEXT:
-        {context}
-        ---
+            Your task is to compare, contrast, and synthesize the information from the different source documents. 
+            When you use information from a specific document, cite it by its filename (e.g., "According to 'paper_A.pdf'...", "In contrast, 'paper_B.pdf' states...").
 
-        QUESTION:
-        {question}
-        ---
+            Do not use any information outside of the provided text. If the answer cannot be reasonably synthesized from the context, please state that.
 
-        ANSWER:
-        """
+            ---
+            CONTEXT:
+            {context}
+            ---
 
-        # Use the async version of the API call with streaming enabled
+            QUESTION:
+            {question}
+            ---
+
+            ANSWER:
+            """
+        else:
+            # The original, more restrictive prompt for single-document Q&A
+            prompt = f"""
+            Based *only* on the following context, please provide a clear and concise answer to the question.
+            Do not use any information outside of the provided text. If the answer cannot be found
+            in the context, please state that.
+
+            ---
+            CONTEXT:
+            {context}
+            ---
+
+            QUESTION:
+            {question}
+            ---
+
+            ANSWER:
+            """
+
         response = await model.generate_content_async(prompt, stream=True)
 
-        # Yield each chunk of the response as it's received
         async for chunk in response:
             yield chunk.text
 
     except Exception as e:
-        # Handle potential API errors
         print(f"An error occurred with the Gemini API: {e}")
         yield "Error: Could not generate an answer."
     

@@ -11,7 +11,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
-from typing import Annotated, List
+from typing import Annotated, List, Optional, Dict
 from pydantic import BaseModel
 import arxiv
 from datetime import datetime
@@ -21,7 +21,7 @@ from backend.database.models import Document, TextChunk, User
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.utils.text_processing import chunk_text
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
-from backend.services.search_service import find_relevant_chunks
+from backend.services.search_service import find_relevant_chunks, find_relevant_chunks_multi
 from backend.services.gemini_service import get_answer_from_gemini
 from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
@@ -59,11 +59,16 @@ class ImportFromUrlRequest(BaseModel):
     pdf_url: str
     title: str
 
+class MultiChatRequest(BaseModel):
+    document_ids: List[int]
+    question: str
+
 class DocumentResponse(BaseModel):
     id: int
     filename: str
     upload_date: datetime
     status: str
+    structured_data: Optional[Dict] = None
 
     class Config:
         orm_mode = True
@@ -477,3 +482,39 @@ async def import_from_url(
         # --- IMPROVED ERROR MESSAGE ---
         print(f"An unexpected error occurred during import: {e}")
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
+@app.post("/chat/multi")
+async def chat_with_multiple_documents(request: MultiChatRequest, db: Session = Depends(get_db)):
+    """
+    Accepts a user question for multiple documents and returns a context-aware AI answer as a stream.
+    """
+    try:
+        # This will be fully implemented in Task 11
+        relevant_chunks = find_relevant_chunks_multi(
+            document_ids=request.document_ids,
+            question=request.question,
+            db=db
+        )
+
+        if not relevant_chunks:
+            raise HTTPException(
+                status_code=404,
+                detail="Could not find relevant information in the selected documents to answer the question."
+            )
+
+        context_str = "\n---\n".join(relevant_chunks)
+
+        async def stream_generator():
+            try:
+                async for chunk in get_answer_from_gemini(context=context_str, question=request.question, is_multi_doc=True):
+                    yield chunk
+            except Exception as e:
+                print(f"An error occurred during streaming: {e}")
+                yield "Error: Could not generate a streaming answer."
+
+        return StreamingResponse(stream_generator(), media_type="text/plain")
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred during multi-chat processing: {e}")

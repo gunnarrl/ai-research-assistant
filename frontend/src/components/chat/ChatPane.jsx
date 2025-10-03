@@ -1,9 +1,12 @@
-// frontend/src/components/ChatPane.jsx
+// frontend/src/components/chat/ChatPane.jsx
 import React, { useState } from 'react';
 import ChatWindow from './ChatWindow';
 import ChatInput from './ChatInput';
+import StructuredDataDisplay from './StructuredDataDisplay'; // Import the new component
 
-const ChatPane = ({ chatHistory, onSendMessage, isLoading, onReturnToDashboard }) => {
+// Add 'document' to the destructured props
+const ChatPane = ({ document, chatHistory, onSendMessage, isLoading, onReturnToDashboard }) => {
+  console.log("ChatPane.jsx: Received document prop:", document); // Keep this for debugging
   const [isOpen, setIsOpen] = useState(true);
 
   if (!isOpen) {
@@ -20,16 +23,31 @@ const ChatPane = ({ chatHistory, onSendMessage, isLoading, onReturnToDashboard }
   return (
     <div className="w-full md:w-1/2 lg:w-1/3 flex flex-col bg-white shadow-lg border-l border-gray-200 h-full">
       <div className="p-4 border-b flex justify-between items-center">
-        {/* Add the "Back" button here */}
         <button onClick={onReturnToDashboard} className="text-sm text-blue-600 hover:underline">
           &larr; Back to Dashboard
         </button>
         <h2 className="text-xl font-bold">Chat</h2>
         <button onClick={() => setIsOpen(false)} className="text-gray-500 hover:text-gray-800">&times;</button>
       </div>
-      <div className="flex-grow flex flex-col p-4 space-y-4">
-        <ChatWindow chatHistory={chatHistory} />
-        <ChatInput onSendMessage={onSendMessage} isLoading={isLoading} />
+      {/* Make this section scrollable */}
+      <div className="flex-grow flex flex-col p-4 min-h-0">
+        {/* This new container will manage the split view */}
+        <div className="flex-1 flex flex-col space-y-4 min-h-0">
+          
+          {/* StructuredDataDisplay will be wrapped to control its scrolling */}
+          <div className="flex-none h-1/3">
+             <StructuredDataDisplay data={document?.structured_data} />
+          </div>
+
+          {/* ChatWindow will take the remaining space */}
+          <ChatWindow chatHistory={chatHistory} />
+
+        </div>
+
+        {/* ChatInput is now outside the split view, at the bottom */}
+        <div className="flex-none pt-4">
+          <ChatInput onSendMessage={onSendMessage} isLoading={isLoading} />
+        </div>
       </div>
     </div>
   );

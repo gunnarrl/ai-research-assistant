@@ -6,7 +6,7 @@ import ArXivSearch from './ArXivSearch';
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
-const DashboardPage = ({ token, onSelectDocument, onLogout }) => {
+const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat }) => {
   const [documents, setDocuments] = useState([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -14,6 +14,9 @@ const DashboardPage = ({ token, onSelectDocument, onLogout }) => {
   // For file upload
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
+
+  // For multi-select
+  const [selectedDocs, setSelectedDocs] = useState([]);
 
   // This function needs to be defined inside the component or passed as a prop
   const fetchDocuments = async () => {
@@ -71,6 +74,18 @@ const DashboardPage = ({ token, onSelectDocument, onLogout }) => {
       setSelectedFile(null);
       if (file) setError("Please select a valid PDF file.");
     }
+  };
+
+  const handleCheckboxChange = (docId) => {
+    setSelectedDocs(prevSelected => {
+      if (prevSelected.includes(docId)) {
+        // If it's already selected, remove it
+        return prevSelected.filter(id => id !== docId);
+      } else {
+        // If it's not selected, add it
+        return [...prevSelected, docId];
+      }
+    });
   };
 
   const handleFileUpload = async (event) => {
@@ -138,7 +153,22 @@ const DashboardPage = ({ token, onSelectDocument, onLogout }) => {
         </div>
 
         <div>
-          <h3 className="text-xl font-bold text-gray-800 mb-4">Existing Documents</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold text-gray-800">Existing Documents</h3>
+            {/* "Chat with Selected" button */}
+            {selectedDocs.length > 0 && (
+              <button
+                // We will add the onClick handler in a future task
+                onClick={() => {
+                  const docsToChat = documents.filter(doc => selectedDocs.includes(doc.id));
+                  onStartMultiChat(docsToChat);
+                }} 
+                 className="px-4 py-2 bg-green-600 text-white font-semibold rounded-lg shadow-md hover:bg-green-700"
+               >
+                 {`Chat with Selected (${selectedDocs.length})`}
+              </button>
+            )}
+          </div>
           {isLoading ? (
             <p>Loading documents...</p>
           ) : (
@@ -150,19 +180,34 @@ const DashboardPage = ({ token, onSelectDocument, onLogout }) => {
                   const isClickable = !isProcessing && !isFailed;
 
                   return (
+                    // Use a div as the container now
                     <div
                       key={doc.id}
-                      onClick={isClickable ? () => onSelectDocument(doc) : undefined}
                       className={`p-4 rounded-lg border flex justify-between items-center ${
                         isClickable
-                          ? 'bg-gray-50 border-gray-200 hover:bg-blue-50 hover:border-blue-300 cursor-pointer'
-                          : 'bg-gray-100 border-gray-200 cursor-not-allowed'
+                          ? 'bg-gray-50 border-gray-200'
+                          : 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-60'
                       }`}
                     >
-                      <div>
-                        <p className={`font-semibold ${isClickable ? 'text-gray-800' : 'text-gray-500'}`}>{doc.filename}</p>
-                        <p className="text-sm text-gray-500">Uploaded on: {new Date(doc.upload_date).toLocaleDateString()}</p>
+                      {/* Checkbox and Document Info */}
+                      <div className="flex items-center space-x-4">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          disabled={!isClickable}
+                          checked={selectedDocs.includes(doc.id)}
+                          onChange={() => handleCheckboxChange(doc.id)}
+                        />
+                        <div 
+                          onClick={isClickable ? () => onSelectDocument(doc) : undefined}
+                          className={isClickable ? 'cursor-pointer' : ''}
+                        >
+                          <p className={`font-semibold ${isClickable ? 'text-gray-800' : 'text-gray-500'}`}>{doc.filename}</p>
+                          <p className="text-sm text-gray-500">Uploaded on: {new Date(doc.upload_date).toLocaleDateString()}</p>
+                        </div>
                       </div>
+
+                      {/* Status Indicators */}
                       {isProcessing && (
                         <div className="flex items-center space-x-2">
                           <span className="text-sm text-gray-500">Processing...</span>

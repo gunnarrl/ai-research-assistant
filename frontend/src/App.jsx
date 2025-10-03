@@ -4,6 +4,7 @@ import PdfViewer from './components/files/PdfViewer';
 import ChatPane from './components/chat/ChatPane';
 import LoginPage from './components/auth/LoginPage';
 import DashboardPage from './components/dashboard/DashboardPage';
+import MultiDocList from './components/chat/MultiDocList'; // <-- NEW IMPORT
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 const TOKEN_KEY = 'authToken';
@@ -11,11 +12,39 @@ const TOKEN_KEY = 'authToken';
 function App() {
   const [token, setToken] = useState(localStorage.getItem(TOKEN_KEY));
   const [selectedDocument, setSelectedDocument] = useState(null);
-
-  // Chat-specific state
   const [chatHistory, setChatHistory] = useState([]);
   const [isAnswering, setIsAnswering] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
+
+  // --- NEW AND UPDATED STATE FOR MULTI-CHAT ---
+  const [multiChatDocs, setMultiChatDocs] = useState([]); // Will store full document objects
+  const [currentMultiViewDocId, setCurrentMultiViewDocId] = useState(null); // Tracks which PDF to show
+
+  // --- REFACTORED PDF FETCHING LOGIC ---
+  const fetchAndDisplayPdf = async (docId) => {
+    if (!token) return;
+    setPdfUrl(null); // Clear previous PDF while loading new one
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/documents/${docId}/file`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Could not fetch PDF file.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      setPdfUrl(url);
+    } catch (err) {
+      console.error("Failed to load PDF:", err);
+    }
+  };
+
+  // --- EFFECT TO FETCH PDF WHEN VIEW SELECTION CHANGES ---
+  useEffect(() => {
+    if (currentMultiViewDocId) {
+      fetchAndDisplayPdf(currentMultiViewDocId);
+    }
+  }, [currentMultiViewDocId, token]);
+
 
   const handleLoginSuccess = (newToken) => {
     localStorage.setItem(TOKEN_KEY, newToken);
@@ -26,65 +55,61 @@ function App() {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setSelectedDocument(null);
+    setMultiChatDocs([]);
   };
 
   const handleSelectDocument = async (doc) => {
-    // This function will now fetch the PDF content
     setSelectedDocument(doc);
     setChatHistory([{ sender: 'ai', text: `Selected "${doc.filename}". Ask me anything!` }]);
-    setPdfUrl(null); // Clear previous PDF
+    fetchAndDisplayPdf(doc.id); // Use the refactored function
+  };
 
-    try {
-        const response = await fetch(`${BACKEND_URL}/documents/${doc.id}/file`, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        if (response.status === 401) {
-            handleLogout();
-            return;
-        }
-
-        if (!response.ok) {
-            throw new Error("Could not fetch PDF file.");
-        }
-
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        setPdfUrl(url);
-
-    } catch (err) {
-        console.error("Failed to load PDF:", err);
-        // Optionally set an error state to show in the UI
+  // --- UPDATED MULTI-CHAT HANDLERS ---
+  const handleStartMultiChat = (docs) => {
+    setMultiChatDocs(docs);
+    setSelectedDocument(null); 
+    setChatHistory([{ sender: 'ai', text: `Chatting with ${docs.length} documents. Ask me anything!` }]);
+    // Select the first doc in the list to view by default
+    if (docs.length > 0) {
+      setCurrentMultiViewDocId(docs[0].id);
     }
+  };
+  
+  const handleSelectMultiViewDoc = (docId) => {
+    setCurrentMultiViewDocId(docId);
   };
 
   const handleReturnToDashboard = () => {
     setSelectedDocument(null);
-    setChatHistory([]); // Clear chat history when going back
+    setMultiChatDocs([]);
+    setCurrentMultiViewDocId(null);
+    setChatHistory([]);
+    if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl);
+      setPdfUrl(null);
+    }
   };
 
-   const handleSendMessage = async (question) => {
-    if (!selectedDocument) return;
+  // --- UPDATED handleSendMessage TO USE THE NEW STATE ---
+  const handleSendMessage = async (question) => {
+    const isMultiChat = multiChatDocs.length > 0;
+    if (!selectedDocument && !isMultiChat) return;
 
-    // 1. Add user's message and a placeholder for the AI's response
     const newUserMessage = { sender: 'user', text: question };
     const aiPlaceholder = { sender: 'ai', text: '' };
     setChatHistory(prev => [...prev, newUserMessage, aiPlaceholder]);
     setIsAnswering(true);
 
+    const endpoint = isMultiChat ? `${BACKEND_URL}/chat/multi` : `${BACKEND_URL}/chat`;
+    const body = isMultiChat 
+      ? JSON.stringify({ document_ids: multiChatDocs.map(d => d.id), question: question })
+      : JSON.stringify({ document_id: selectedDocument.id, question: question });
+
     try {
-      const response = await fetch(`${BACKEND_URL}/chat`, {
+      const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          document_id: selectedDocument.id,
-          question: question,
-        }),
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: body,
       });
 
       if (!response.ok || !response.body) {
@@ -92,18 +117,13 @@ function App() {
         throw new Error(errorData?.detail || `HTTP error! Status: ${response.status}`);
       }
 
-      // 2. Process the streaming response
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       
       while (true) {
         const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
+        if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        
-        // 3. Append the incoming chunk to the last AI message in the history
         setChatHistory(prev => {
           const lastMessage = prev[prev.length - 1];
           if (lastMessage && lastMessage.sender === 'ai') {
@@ -113,9 +133,8 @@ function App() {
           return prev;
         });
       }
-
     } catch (err) {
-      // If an error occurs, update the placeholder with the error message
+      // ... error handling is the same
       setChatHistory(prev => {
         const lastMessage = prev[prev.length - 1];
         if (lastMessage && lastMessage.sender === 'ai') {
@@ -129,19 +148,45 @@ function App() {
     }
   };
 
-
-
-  // --- Conditional Rendering Logic ---
-
+  // --- UPDATED RENDER LOGIC ---
   if (selectedDocument) {
+    // Single-doc view remains a two-panel layout
     return (
       <div className="flex w-screen h-screen font-sans">
-        {/* Replace the simplified view with the actual PdfViewer component */}
         <div className="flex-1">
           <PdfViewer pdfUrl={pdfUrl} />
         </div>
-        
         <ChatPane
+          document={selectedDocument}
+          chatHistory={chatHistory}
+          onSendMessage={handleSendMessage}
+          isLoading={isAnswering}
+          onReturnToDashboard={handleReturnToDashboard}
+        />
+      </div>
+    );
+  }
+
+  if (multiChatDocs.length > 0) {
+    // Find the full document object that is currently being viewed in the PDF panel
+    const currentViewedDoc = multiChatDocs.find(doc => doc.id === currentMultiViewDocId) || { structured_data: null };
+
+    // Multi-doc view is now a three-panel layout
+    return (
+      <div className="flex w-screen h-screen font-sans">
+        <div className="w-64 bg-gray-100 border-r border-gray-200 p-2">
+          <MultiDocList 
+            documents={multiChatDocs}
+            currentDocId={currentMultiViewDocId}
+            onSelect={handleSelectMultiViewDoc}
+          />
+        </div>
+        <div className="flex-1">
+          <PdfViewer pdfUrl={pdfUrl} />
+        </div>
+        <ChatPane
+          // Pass the currently viewed document to the ChatPane
+          document={currentViewedDoc}
           chatHistory={chatHistory}
           onSendMessage={handleSendMessage}
           isLoading={isAnswering}
@@ -152,7 +197,12 @@ function App() {
   }
 
   if (token) {
-    return <DashboardPage token={token} onSelectDocument={handleSelectDocument} onLogout={handleLogout} />;
+    return <DashboardPage 
+              token={token} 
+              onSelectDocument={handleSelectDocument} 
+              onLogout={handleLogout}
+              onStartMultiChat={handleStartMultiChat} 
+            />;
   }
 
   return <LoginPage onLoginSuccess={handleLoginSuccess} />;
