@@ -2,30 +2,20 @@
 
 import httpx
 from sqlalchemy.orm import Session
-from fastapi import BackgroundTasks
-
 from backend.database.models import Document
-from backend.main import process_pdf_background
 
-async def import_paper_from_url(
+async def download_and_create_document(
     pdf_url: str,
     title: str,
     owner_id: int,
-    db: Session,
-    background_tasks: BackgroundTasks
-) -> Document:
+    db: Session
+) -> (Document, bytes):
     """
-    Downloads a PDF from a URL, creates a document record, and starts the background processing task.
-
-    Args:
-        pdf_url: The URL of the PDF to download.
-        title: The title to use for the document's filename.
-        owner_id: The ID of the user who will own this document.
-        db: The SQLAlchemy database session.
-        background_tasks: The FastAPI BackgroundTasks instance to add the processing job to.
+    Downloads a PDF from a URL and creates the initial Document record.
+    It does NOT start the background processing.
 
     Returns:
-        The newly created Document object.
+        A tuple containing the newly created Document object and the file's content in bytes.
     """
     print(f"Importer service: Downloading from {pdf_url}")
     async with httpx.AsyncClient() as client:
@@ -42,15 +32,6 @@ async def import_paper_from_url(
     db.add(new_document)
     db.commit()
     db.refresh(new_document)
-
-    # Note: We pass the db session from the background task context, not the API context
-    background_tasks.add_task(
-        process_pdf_background,
-        file_bytes,
-        title,
-        new_document.id,
-        db
-    )
     
-    print(f"Importer service: Created document ID {new_document.id} and started background processing.")
-    return new_document
+    print(f"Importer service: Created document record with ID {new_document.id}.")
+    return new_document, file_bytes

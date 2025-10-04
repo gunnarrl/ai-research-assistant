@@ -5,6 +5,7 @@ import FileUploadForm from '../files/FileUploadForm';
 import ArXivSearch from './ArXivSearch';
 import ProjectsDashboard from './ProjectsDashboard';
 import AddToProjectModal from './AddToProjectModal';
+import AgentDashboard from './AgentDashboard';
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
@@ -233,20 +234,25 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
 
         <div className="border-t border-gray-200 my-8"></div>
 
-        <div>
-          <ArXivSearch token={token} onImportSuccess={fetchDocuments} />
-        </div>
+          <div>
+            <ArXivSearch token={token} onImportSuccess={fetchDocuments} />
+          </div>
 
         <div className="border-t border-gray-200 my-8"></div>
+
+          <div>
+            <AgentDashboard token={token} />
+          </div>
         
-        <div>
-          <ProjectsDashboard 
-            projects={projects}
-            token={token}
-            onProjectCreated={fetchProjects}
-            onSelectProject={onSelectProject}
-          />
-        </div>
+        <div className="border-t border-gray-200 my-8"></div>
+          <div>
+            <ProjectsDashboard 
+              projects={projects}
+              token={token}
+              onProjectCreated={fetchProjects}
+              onSelectProject={onSelectProject}
+            />
+          </div>
 
         <div className="border-t border-gray-200 my-8"></div>
 

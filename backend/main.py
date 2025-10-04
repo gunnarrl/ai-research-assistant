@@ -3,6 +3,7 @@
 import os
 import httpx
 import asyncio
+from contextlib import asynccontextmanager
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks, Response
@@ -10,6 +11,7 @@ from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 from typing import Annotated, List, Optional, Dict
 from pydantic import BaseModel
 from sqlalchemy import or_
@@ -17,15 +19,16 @@ import arxiv
 from datetime import datetime
 
 # Import your models and utility functions
-from backend.database.models import Document, TextChunk, User, Citation, Project
+from backend.database.models import Document, TextChunk, User, Citation, Project, LiteratureReview
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.services.citation_service import extract_citations_from_text
 from backend.utils.text_processing import chunk_text
-from backend.services.importer_service import import_paper_from_url
+from backend.services.importer_service import download_and_create_document
 from backend.services.arxiv_service import perform_arxiv_search
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks, find_relevant_chunks_multi
 from backend.services.gemini_service import get_answer_from_gemini, extract_structured_data_sync
+from backend.services.importer_service import download_and_create_document
 from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
 from backend.agent import run_literature_review_agent
@@ -93,6 +96,7 @@ class LitReviewResponse(BaseModel):
     id: int
     topic: str
     status: str
+    result: Optional[str] = None
 
 
 # --- Pydantic Models for Projects ---
@@ -166,12 +170,38 @@ def get_document_if_user_has_access(
     # If neither condition is met, deny access
     raise HTTPException(status_code=403, detail="You do not have permission to access this document.")
 
+# --- NEW LIFESPAN EVENT HANDLER ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # This code runs on startup
+    print("Application startup: Cleaning up stale literature reviews...")
+    db = SessionLocal()
+    try:
+        # Find any reviews that were in a processing state when the server shut down
+        stale_reviews = db.query(LiteratureReview).filter(
+            LiteratureReview.status.notin_(['COMPLETED', 'FAILED', 'PENDING'])
+        ).all()
+
+        if stale_reviews:
+            for review in stale_reviews:
+                print(f"Found stale literature review (ID: {review.id}). Marking as FAILED.")
+                review.status = "FAILED"
+                review.result = "The server was restarted during the review process."
+            db.commit()
+    finally:
+        db.close()
+    
+    yield
+    # This code runs on shutdown (not needed for this fix, but good practice to have)
+    print("Application shutdown.")
+# --------------------------------
 
 
 app = FastAPI(
     title="AI Research Assistant API",
     description="API for the AI Research Assistant application.",
     version="0.1.0",
+    lifespan=lifespan
 )
 
 # CORS configuration
@@ -603,15 +633,23 @@ async def import_from_url(
     db: Session = Depends(get_db)
 ):
     """
-    Downloads a PDF from a URL and processes it in the background using the importer service.
+    Downloads a PDF and starts the processing task in the background.
     """
     try:
-        new_document = await import_paper_from_url(
+        new_document, file_bytes = await download_and_create_document(
             pdf_url=request.pdf_url,
             title=request.title,
             owner_id=current_user.id,
-            db=db,
-            background_tasks=background_tasks
+            db=db
+        )
+        # The endpoint is responsible for adding the task now
+        db_for_task = SessionLocal()
+        background_tasks.add_task(
+            process_pdf_background, 
+            file_bytes, 
+            new_document.filename, 
+            new_document.id, 
+            db_for_task
         )
         return {"message": "File import started. Processing in the background.", "document_id": new_document.id}
 
@@ -790,3 +828,38 @@ async def start_literature_review(
     background_tasks.add_task(run_literature_review_agent, new_review.id, new_review.topic)
 
     return new_review
+
+@app.get("/agent/literature-review/active", response_model=Optional[LitReviewResponse])
+async def get_active_literature_review(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Finds the most recent, non-completed literature review for the current user.
+    """
+    # Find the latest review that isn't COMPLETED or FAILED for this user
+    active_review = db.query(LiteratureReview).filter(
+        LiteratureReview.owner_id == current_user.id,
+        LiteratureReview.status.notin_(['COMPLETED', 'FAILED'])
+    ).order_by(desc(LiteratureReview.id)).first()
+    
+    return active_review
+
+@app.get("/agent/literature-review/{review_id}", response_model=LitReviewResponse)
+async def get_literature_review_status(
+    review_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves the status and result of a specific literature review task.
+    """
+    review = db.query(LiteratureReview).filter(
+        LiteratureReview.id == review_id,
+        LiteratureReview.owner_id == current_user.id
+    ).first()
+
+    if not review:
+        raise HTTPException(status_code=404, detail="Literature review not found.")
+    
+    return review

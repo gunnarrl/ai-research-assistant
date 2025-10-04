@@ -10,6 +10,9 @@ def _chunk_long_sentence(text: str, chunk_size: int, chunk_overlap: int) -> list
     Splits a single long text string into smaller, word-aware chunks.
     This is a helper for the main hybrid chunker.
     """
+
+    text = text.replace('\x00', '')
+
     if not isinstance(text, str) or chunk_overlap >= chunk_size:
         return []
 
@@ -61,6 +64,10 @@ def chunk_text(
     Returns:
         A list of semantically coherent text chunks.
     """
+
+    text = text.replace('\x00', '')
+
+
     # 1. Split text into sentences using NLTK for better accuracy
     try:
         base_sentences = nltk.sent_tokenize(text)
