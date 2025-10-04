@@ -14,9 +14,9 @@ def find_references_section(text: str) -> Optional[str]:
     Returns:
         The text content of the references section, or None if not found.
     """
-    # Regex to find 'References', 'REFERENCES', or 'Bibliography' as a standalone line
-    # It captures all text that follows until the end of the document.
-    match = re.search(r'^\s*(?:References|REFERENCES|Bibliography)\s*$', text, re.MULTILINE)
+    # MODIFIED REGEX: Look for the keyword at the start of a line,
+    # but don't require it to be the *only* thing on the line.
+    match = re.search(r'^\s*(?:REFERENCES||Bibliography|Citations)\s*', text, re.MULTILINE | re.IGNORECASE)
     
     if match:
         # Return the text from the start of the match to the end of the string

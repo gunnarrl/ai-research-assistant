@@ -43,7 +43,7 @@ class UserResponse(BaseModel):
     email: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class Token(BaseModel):
     access_token: str
@@ -71,7 +71,7 @@ class DocumentResponse(BaseModel):
     structured_data: Optional[Dict] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class CitationResponse(BaseModel):
     id: int
@@ -79,7 +79,7 @@ class CitationResponse(BaseModel):
     data: Dict
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # OAuth2 Scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")

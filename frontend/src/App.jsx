@@ -4,7 +4,7 @@ import PdfViewer from './components/files/PdfViewer';
 import ChatPane from './components/chat/ChatPane';
 import LoginPage from './components/auth/LoginPage';
 import DashboardPage from './components/dashboard/DashboardPage';
-import MultiDocList from './components/chat/MultiDocList'; // <-- NEW IMPORT
+import MultiDocList from './components/chat/MultiDocList';
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 const TOKEN_KEY = 'authToken';
@@ -20,6 +20,8 @@ function App() {
   const [multiChatDocs, setMultiChatDocs] = useState([]); // Will store full document objects
   const [currentMultiViewDocId, setCurrentMultiViewDocId] = useState(null); // Tracks which PDF to show
 
+  const [citations, setCitations] = useState([]);
+  
   // --- REFACTORED PDF FETCHING LOGIC ---
   const fetchAndDisplayPdf = async (docId) => {
     if (!token) return;
@@ -51,17 +53,31 @@ function App() {
     setToken(newToken);
   };
 
-  const handleLogout = () => {
+   const handleLogout = () => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setSelectedDocument(null);
     setMultiChatDocs([]);
+    setCitations([]); // <-- Clear citations on logout
   };
 
   const handleSelectDocument = async (doc) => {
     setSelectedDocument(doc);
     setChatHistory([{ sender: 'ai', text: `Selected "${doc.filename}". Ask me anything!` }]);
-    fetchAndDisplayPdf(doc.id); // Use the refactored function
+    fetchAndDisplayPdf(doc.id);
+    
+    // --- NEW: FETCH CITATIONS ---
+    setCitations([]); // Clear previous citations
+    try {
+      const response = await fetch(`${BACKEND_URL}/documents/${doc.id}/citations`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) throw new Error("Could not fetch citations.");
+      const data = await response.json();
+      setCitations(data);
+    } catch (err) {
+      console.error("Failed to load citations:", err);
+    }
   };
 
   // --- UPDATED MULTI-CHAT HANDLERS ---
@@ -84,6 +100,7 @@ function App() {
     setMultiChatDocs([]);
     setCurrentMultiViewDocId(null);
     setChatHistory([]);
+    setCitations([]); // <-- Clear citations on return
     if (pdfUrl) {
       URL.revokeObjectURL(pdfUrl);
       setPdfUrl(null);
@@ -162,6 +179,8 @@ function App() {
           onSendMessage={handleSendMessage}
           isLoading={isAnswering}
           onReturnToDashboard={handleReturnToDashboard}
+          citations={citations} // <-- Pass citations
+          token={token}         // <-- Pass token
         />
       </div>
     );
@@ -185,12 +204,13 @@ function App() {
           <PdfViewer pdfUrl={pdfUrl} />
         </div>
         <ChatPane
-          // Pass the currently viewed document to the ChatPane
           document={currentViewedDoc}
           chatHistory={chatHistory}
           onSendMessage={handleSendMessage}
           isLoading={isAnswering}
           onReturnToDashboard={handleReturnToDashboard}
+          citations={citations}
+          token={token}
         />
       </div>
     );
