@@ -1,19 +1,21 @@
-// frontend/src/components/dashboard/DashboardPage.jsx
+// gunnarrl/ai-research-assistant/ai-research-assistant-bug-fixing/frontend/src/components/dashboard/DashboardPage.jsx
+
 import React, { useState, useEffect } from 'react';
-import Header from '../Header'; 
+import Header from '../Header';
 import FileUploadForm from '../files/FileUploadForm';
-import ArXivSearch from './ArXivSearch';
+import ArXivSearch from './ArxivSearch';
 import ProjectsDashboard from './ProjectsDashboard';
 import AddToProjectModal from './AddToProjectModal';
 import AgentDashboard from './AgentDashboard';
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
-const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, onSelectProject }) => {
+const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, onSelectProject, onSelectLitReview }) => {
   const [documents, setDocuments] = useState([]);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [projects, setProjects] = useState([]);
+  const [litReviews, setLitReviews] = useState([]);
 
   // For file upload
   const [selectedFile, setSelectedFile] = useState(null);
@@ -25,6 +27,21 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
   // --- State for the "Add to Project" modal ---
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [docToAdd, setDocToAdd] = useState(null);
+
+  const fetchLiteratureReviews = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/agent/literature-reviews`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch literature reviews.');
+      }
+      const data = await response.json();
+      setLitReviews(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
 
   // This function needs to be defined inside the component or passed as a prop
   const fetchDocuments = async () => {
@@ -71,20 +88,22 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
 
   useEffect(() => {
     setIsLoading(true);
-    Promise.all([fetchDocuments(), fetchProjects()]).finally(() => setIsLoading(false));
+    Promise.all([fetchDocuments(), fetchProjects(), fetchLiteratureReviews()]).finally(() => setIsLoading(false));
   }, [token]);
 
   useEffect(() => {
     const hasProcessingDocuments = documents.some(doc => doc.status === 'PROCESSING');
-    
-    if (hasProcessingDocuments) {
+    const hasProcessingReviews = litReviews.some(review => review.status !== 'COMPLETED' && review.status !== 'FAILED');
+
+    if (hasProcessingDocuments || hasProcessingReviews) {
       const intervalId = setInterval(() => {
-        fetchDocuments();
+        if (hasProcessingDocuments) fetchDocuments();
+        if (hasProcessingReviews) fetchLiteratureReviews();
       }, 3000); 
 
       return () => clearInterval(intervalId);
     }
-  }, [documents]);
+  }, [documents, litReviews]);
 
   const handleOpenAddToProjectModal = (doc) => {
     setDocToAdd(doc);
@@ -241,7 +260,7 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
         <div className="border-t border-gray-200 my-8"></div>
 
           <div>
-            <AgentDashboard token={token} />
+            <AgentDashboard token={token} onReviewComplete={fetchLiteratureReviews} />
           </div>
         
         <div className="border-t border-gray-200 my-8"></div>
@@ -253,6 +272,53 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
               onSelectProject={onSelectProject}
             />
           </div>
+
+        <div className="border-t border-gray-200 my-8"></div>
+
+        <div>
+          <h3 className="text-xl font-bold text-gray-800 mb-4">Literature Reviews</h3>
+          {isLoading ? (
+            <p>Loading literature reviews...</p>
+          ) : (
+            <div className="space-y-3">
+              {litReviews.length > 0 ? (
+                litReviews.map(review => {
+                  const isProcessing = review.status !== 'COMPLETED' && review.status !== 'FAILED';
+                  const isFailed = review.status === 'FAILED';
+                  const isClickable = !isProcessing && !isFailed;
+
+                  return (
+                    <div
+                      key={review.id}
+                      onClick={isClickable ? () => onSelectLitReview(review) : undefined}
+                      className={`p-4 rounded-lg border flex justify-between items-center ${
+                        isClickable
+                          ? 'bg-gray-50 border-gray-200 cursor-pointer hover:bg-gray-100'
+                          : 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-60'
+                      }`}
+                    >
+                      <div>
+                        <p className={`font-semibold ${isClickable ? 'text-gray-800' : 'text-gray-500'}`}>{review.topic}</p>
+                        <p className="text-sm text-gray-500">Status: {review.status}</p>
+                      </div>
+                      {isProcessing && (
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm text-gray-500">Processing...</span>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                        </div>
+                      )}
+                      {isFailed && (
+                        <span className="text-sm text-red-500 font-semibold">Processing Failed</span>
+                      )}
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-gray-500">No literature reviews created yet.</p>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="border-t border-gray-200 my-8"></div>
 
@@ -355,6 +421,5 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
     </div>
   );
 };
-
 
 export default DashboardPage;

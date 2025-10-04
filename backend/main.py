@@ -98,6 +98,9 @@ class LitReviewResponse(BaseModel):
     status: str
     result: Optional[str] = None
 
+    class Config:
+        from_attributes = True
+
 
 # --- Pydantic Models for Projects ---
 
@@ -828,6 +831,19 @@ async def start_literature_review(
     background_tasks.add_task(run_literature_review_agent, new_review.id, new_review.topic)
 
     return new_review
+
+@app.get("/agent/literature-reviews", response_model=List[LitReviewResponse])
+async def get_literature_reviews(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves a list of all literature reviews for the current user.
+    """
+    reviews = db.query(LiteratureReview).filter(
+        LiteratureReview.owner_id == current_user.id
+    ).order_by(desc(LiteratureReview.id)).all()
+    return reviews
 
 @app.get("/agent/literature-review/active", response_model=Optional[LitReviewResponse])
 async def get_active_literature_review(

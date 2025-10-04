@@ -6,6 +6,8 @@ import LoginPage from './components/auth/LoginPage';
 import DashboardPage from './components/dashboard/DashboardPage';
 import ProjectViewPage from './components/dashboard/ProjectViewPage';
 import MultiDocList from './components/chat/MultiDocList';
+import LiteratureReviewViewPage from './components/dashboard/LiteratureReviewViewPage';
+
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 const TOKEN_KEY = 'authToken';
@@ -16,6 +18,8 @@ function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [isAnswering, setIsAnswering] = useState(false);
   const [pdfUrl, setPdfUrl] = useState(null);
+  const [selectedLitReview, setSelectedLitReview] = useState(null);
+
 
   // --- NEW AND UPDATED STATE FOR MULTI-CHAT ---
   const [multiChatDocs, setMultiChatDocs] = useState([]); // Will store full document objects
@@ -86,6 +90,10 @@ function App() {
     setSelectedProject(project);
   };
 
+  const handleSelectLitReview = (review) => {
+    setSelectedLitReview(review);
+  };
+
   // --- UPDATED MULTI-CHAT HANDLERS ---
   const handleStartMultiChat = (docs) => {
     setMultiChatDocs(docs);
@@ -105,7 +113,8 @@ function App() {
     setSelectedDocument(null);
     setMultiChatDocs([]);
     setCurrentMultiViewDocId(null);
-    setSelectedProject(null); // <-- Add this
+    setSelectedProject(null);
+    setSelectedLitReview(null);
     setChatHistory([]);
     setCitations([]);
     if (pdfUrl) {
@@ -171,6 +180,14 @@ function App() {
       setIsAnswering(false);
     }
   };
+
+  if (selectedLitReview) {
+    return <LiteratureReviewViewPage
+              review={selectedLitReview}
+              token={token}
+              onReturnToDashboard={handleReturnToDashboard}
+            />
+  }
 
   // --- UPDATED RENDER LOGIC ---
   if (selectedDocument) {
@@ -239,6 +256,7 @@ function App() {
               onLogout={handleLogout}
               onStartMultiChat={handleStartMultiChat}
               onSelectProject={handleSelectProject} // <-- Pass down the handler
+              onSelectLitReview={handleSelectLitReview}
             />;
   }
 

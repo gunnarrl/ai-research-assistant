@@ -1,17 +1,17 @@
-// frontend/src/components/dashboard/AgentDashboard.jsx
+// gunnarrl/ai-research-assistant/ai-research-assistant-bug-fixing/frontend/src/components/dashboard/AgentDashboard.jsx
 
 import React, { useState, useEffect } from 'react';
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 
-const AgentDashboard = ({ token }) => {
+const AgentDashboard = ({ token, onReviewComplete }) => {
   const [topic, setTopic] = useState('');
   const [activeReview, setActiveReview] = useState(null);
-  const [isLoading, setIsLoading] = useState(false); // Used for starting a new review
-  const [isChecking, setIsChecking] = useState(true); // NEW: For the initial check
+  const [isLoading, setIsLoading] = useState(false);
+  const [isChecking, setIsChecking] = useState(true);
   const [error, setError] = useState('');
 
-  // --- NEW: Effect to check for an active review on component mount ---
+  // Effect to check for an active review on component mount
   useEffect(() => {
     const checkForActiveReview = async () => {
       setIsChecking(true);
@@ -22,7 +22,7 @@ const AgentDashboard = ({ token }) => {
         if (response.ok) {
           const data = await response.json();
           if (data) {
-            setActiveReview(data); // If an active review is found, set it
+            setActiveReview(data);
           }
         }
       } catch (err) {
@@ -33,6 +33,31 @@ const AgentDashboard = ({ token }) => {
     };
     checkForActiveReview();
   }, [token]);
+
+  // NEW: Effect to poll for status updates on an active review
+  useEffect(() => {
+    if (activeReview && activeReview.status !== 'COMPLETED' && activeReview.status !== 'FAILED') {
+      const intervalId = setInterval(async () => {
+        try {
+          const response = await fetch(`${BACKEND_URL}/agent/literature-review/${activeReview.id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setActiveReview(data);
+            // If the review just finished, notify the parent to refetch the main list
+            if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+              onReviewComplete();
+            }
+          }
+        } catch (err) {
+          console.error("Polling failed:", err);
+        }
+      }, 5000); // Poll every 5 seconds
+
+      return () => clearInterval(intervalId); // Cleanup on unmount
+    }
+  }, [activeReview, token, onReviewComplete]);
 
   const handleStartReview = async (e) => {
     e.preventDefault();
@@ -65,7 +90,7 @@ const AgentDashboard = ({ token }) => {
   };
 
   const renderStatus = () => {
-    if (!activeReview) return null;
+    if (!activeReview || activeReview.status === 'COMPLETED') return null;
 
     const statusMap = {
       PENDING: "Agent is starting...",
@@ -74,8 +99,6 @@ const AgentDashboard = ({ token }) => {
       SYNTHESIZING: "Synthesizing the final literature review...",
       FAILED: "The agent encountered an error."
     };
-
-    if (activeReview.status === 'COMPLETED') return null;
 
     return (
       <div className="mt-6 flex items-center justify-center space-x-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
