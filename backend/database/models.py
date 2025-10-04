@@ -75,6 +75,17 @@ class Citation(Base):
     # Establish a many-to-one relationship with Document
     document = relationship("Document", back_populates="citations")
 
+class LiteratureReview(Base):
+    __tablename__ = "literature_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    topic = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="PENDING") # PENDING, SEARCHING, SUMMARIZING, SYNTHESIZING, COMPLETED, FAILED
+    result = Column(Text, nullable=True) # To store the final literature review text
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    owner = relationship("User")
+    
 class TextChunk(Base):
     __tablename__ = "text_chunks"
 

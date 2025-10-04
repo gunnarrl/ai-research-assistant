@@ -21,11 +21,14 @@ from backend.database.models import Document, TextChunk, User, Citation, Project
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.services.citation_service import extract_citations_from_text
 from backend.utils.text_processing import chunk_text
+from backend.services.arxiv_service import perform_arxiv_search
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks, find_relevant_chunks_multi
 from backend.services.gemini_service import get_answer_from_gemini, extract_structured_data_sync
 from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
+from backend.agent import run_literature_review_agent
+
 
 # Pydantic Models for API requests and responses
 class GoogleLoginRequest(BaseModel):
@@ -81,6 +84,15 @@ class CitationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class LitReviewRequest(BaseModel):
+    topic: str
+
+class LitReviewResponse(BaseModel):
+    id: int
+    topic: str
+    status: str
+
 
 # --- Pydantic Models for Projects ---
 
@@ -575,25 +587,12 @@ async def chat_with_document(
 @app.get("/arxiv/search", response_model=List[ArxivArticle])
 def search_arxiv(query: str, max_results: int = 5):
     """
-    Searches the arXiv API for papers matching the query.
+    Searches the arXiv API for papers matching the query using the shared service.
     """
-    try:
-        search = arxiv.Search(
-            query=query,
-            max_results=max_results,
-            sort_by=arxiv.SortCriterion.Relevance
-        )
-        results = []
-        for r in search.results():
-            results.append(ArxivArticle(
-                title=r.title,
-                authors=[a.name for a in r.authors],
-                summary=r.summary,
-                pdf_url=r.pdf_url
-            ))
-        return results
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred while searching arXiv: {e}")
+    results = perform_arxiv_search(query, max_results)
+    if not results:
+        raise HTTPException(status_code=500, detail="An error occurred while searching arXiv.")
+    return results
     
 @app.post("/import-from-url")
 async def import_from_url(
@@ -792,3 +791,29 @@ async def export_document_citations(
     return PlainTextResponse(bibtex_content, media_type="application/x-bibtex", headers={
         "Content-Disposition": f"attachment; filename={document.filename}_citations.bib"
     })
+
+# --- Agent Endpoints ---
+
+@app.post("/agent/literature-review", response_model=LitReviewResponse, status_code=status.HTTP_202_ACCEPTED)
+async def start_literature_review(
+    request: LitReviewRequest,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Kicks off the literature review agent as a background task.
+    """
+    new_review = LiteratureReview(
+        topic=request.topic,
+        owner_id=current_user.id,
+        status="PENDING"
+    )
+    db.add(new_review)
+    db.commit()
+    db.refresh(new_review)
+
+    # Add the long-running agent task to the background
+    background_tasks.add_task(run_literature_review_agent, new_review.id, new_review.topic)
+
+    return new_review

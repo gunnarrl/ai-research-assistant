@@ -249,3 +249,53 @@ async def parse_references_from_text(context: str) -> List[Dict]:
         print(f"An error occurred with the Gemini API during citation parsing: {e}")
         return [{"error": "Could not parse citations."}]
 
+async def filter_relevant_papers(topic: str, papers: List[Dict]) -> List[str]:
+    """
+    Uses the Gemini API to select the most relevant papers from a list based on a topic.
+
+    Args:
+        topic: The original research topic.
+        papers: A list of paper dictionaries from the arXiv search.
+
+    Returns:
+        A list of titles of the papers deemed most relevant by the LLM.
+    """
+    try:
+        # Format the paper details into a string for the prompt
+        papers_context = ""
+        for paper in papers:
+            papers_context += f"Title: {paper['title']}\nSummary: {paper['summary']}\n---\n"
+
+        prompt = f"""
+        You are a research assistant helping to build a literature review.
+        Based on the original topic below, please select the 3 to 5 most relevant papers from the provided list.
+
+        Your response must be ONLY a JSON array of the exact titles of the papers you select.
+        Do not include any other text, explanation, or formatting.
+
+        EXAMPLE OUTPUT:
+        [
+          "A Large-Scale Study About Quality and Reproducibility of Jupyter Notebooks",
+          "On the generation, structure, and semantics of grammar patterns in source code identifiers."
+        ]
+
+        ---
+        ORIGINAL TOPIC: "{topic}"
+        ---
+        PAPERS LIST:
+        {papers_context}
+        ---
+
+        JSON OUTPUT (only the array of titles):
+        """
+
+        response = await model.generate_content_async(prompt)
+        json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        
+        # The result is a list of titles
+        return json.loads(json_text)
+
+    except Exception as e:
+        print(f"An error occurred while filtering papers with the LLM: {e}")
+        # Return an empty list as a safe fallback
+        return []
