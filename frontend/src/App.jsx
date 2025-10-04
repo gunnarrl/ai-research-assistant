@@ -4,6 +4,7 @@ import PdfViewer from './components/files/PdfViewer';
 import ChatPane from './components/chat/ChatPane';
 import LoginPage from './components/auth/LoginPage';
 import DashboardPage from './components/dashboard/DashboardPage';
+import ProjectViewPage from './components/dashboard/ProjectViewPage';
 import MultiDocList from './components/chat/MultiDocList';
 
 const BACKEND_URL = "http://127.0.0.1:8000";
@@ -21,7 +22,8 @@ function App() {
   const [currentMultiViewDocId, setCurrentMultiViewDocId] = useState(null); // Tracks which PDF to show
 
   const [citations, setCitations] = useState([]);
-  
+  const [selectedProject, setSelectedProject] = useState(null);
+
   // --- REFACTORED PDF FETCHING LOGIC ---
   const fetchAndDisplayPdf = async (docId) => {
     if (!token) return;
@@ -80,6 +82,10 @@ function App() {
     }
   };
 
+  const handleSelectProject = (project) => {
+    setSelectedProject(project);
+  };
+
   // --- UPDATED MULTI-CHAT HANDLERS ---
   const handleStartMultiChat = (docs) => {
     setMultiChatDocs(docs);
@@ -99,8 +105,9 @@ function App() {
     setSelectedDocument(null);
     setMultiChatDocs([]);
     setCurrentMultiViewDocId(null);
+    setSelectedProject(null); // <-- Add this
     setChatHistory([]);
-    setCitations([]); // <-- Clear citations on return
+    setCitations([]);
     if (pdfUrl) {
       URL.revokeObjectURL(pdfUrl);
       setPdfUrl(null);
@@ -216,12 +223,22 @@ function App() {
     );
   }
 
+  if (selectedProject) {
+    return <ProjectViewPage 
+              project={selectedProject}
+              token={token}
+              onReturnToDashboard={handleReturnToDashboard}
+              onSelectDocument={handleSelectDocument}
+            />
+  }
+
   if (token) {
     return <DashboardPage 
               token={token} 
               onSelectDocument={handleSelectDocument} 
               onLogout={handleLogout}
-              onStartMultiChat={handleStartMultiChat} 
+              onStartMultiChat={handleStartMultiChat}
+              onSelectProject={handleSelectProject} // <-- Pass down the handler
             />;
   }
 

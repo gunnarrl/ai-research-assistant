@@ -12,11 +12,12 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import Annotated, List, Optional, Dict
 from pydantic import BaseModel
+from sqlalchemy import or_
 import arxiv
 from datetime import datetime
 
 # Import your models and utility functions
-from backend.database.models import Document, TextChunk, User, Citation
+from backend.database.models import Document, TextChunk, User, Citation, Project
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.services.citation_service import extract_citations_from_text
 from backend.utils.text_processing import chunk_text
@@ -81,6 +82,26 @@ class CitationResponse(BaseModel):
     class Config:
         from_attributes = True
 
+# --- Pydantic Models for Projects ---
+
+class ProjectCreate(BaseModel):
+    name: str
+
+class ProjectMemberAdd(BaseModel):
+    email: str
+
+class ProjectDocumentAdd(BaseModel):
+    document_id: int
+
+class ProjectResponse(BaseModel):
+    id: int
+    name: str
+    members: List[UserResponse]
+    documents: List[DocumentResponse]
+
+    class Config:
+        from_attributes = True
+
 # OAuth2 Scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -104,6 +125,34 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)], db: Session 
     if user is None:
         raise credentials_exception
     return user
+
+def get_document_if_user_has_access(
+    document_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+) -> Document:
+    """
+    Dependency to get a document and verify user access.
+    A user has access if they are the owner or a member of a project containing the document.
+    """
+    # Query for the document
+    document = db.query(Document).filter(Document.id == document_id).first()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    # Check for ownership
+    if document.owner_id == current_user.id:
+        return document
+
+    # Check for project membership
+    for project in document.projects:
+        if current_user in project.members:
+            return document
+
+    # If neither condition is met, deny access
+    raise HTTPException(status_code=403, detail="You do not have permission to access this document.")
+
 
 
 app = FastAPI(
@@ -292,6 +341,108 @@ async def read_users_me(current_user: Annotated[User, Depends(get_current_user)]
     """
     return current_user
 
+@app.post("/projects", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
+async def create_project(
+    project: ProjectCreate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Creates a new project for the current user. The creator is automatically added as the first member.
+    """
+    new_project = Project(name=project.name)
+    new_project.members.append(current_user)  # Add the creator as a member
+    db.add(new_project)
+    db.commit()
+    db.refresh(new_project)
+    return new_project
+
+@app.get("/projects", response_model=List[ProjectResponse])
+async def read_user_projects(
+    current_user: Annotated[User, Depends(get_current_user)]
+):
+    """
+    Retrieves a list of all projects the current user is a member of.
+    """
+    return current_user.projects
+
+@app.post("/projects/{project_id}/members", response_model=ProjectResponse)
+async def add_project_member(
+    project_id: int,
+    member: ProjectMemberAdd,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Adds another user to a project by their email. Only members of the project can add new members.
+    """
+    # Query the project and ensure the current user is a member
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project or current_user not in project.members:
+        raise HTTPException(status_code=404, detail="Project not found or you do not have permission to modify it.")
+
+    # Find the user to add
+    user_to_add = db.query(User).filter(User.email == member.email).first()
+    if not user_to_add:
+        raise HTTPException(status_code=404, detail="User with the specified email not found.")
+
+    # Add the user if they are not already a member
+    if user_to_add not in project.members:
+        project.members.append(user_to_add)
+        db.commit()
+        db.refresh(project)
+
+    return project
+
+@app.post("/projects/{project_id}/documents", response_model=ProjectResponse)
+async def add_document_to_project(
+    project_id: int,
+    doc_to_add: ProjectDocumentAdd,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Adds an existing document (owned by the current user) to a project.
+    """
+    # Verify the current user is a member of the project
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project or current_user not in project.members:
+        raise HTTPException(status_code=404, detail="Project not found or you do not have permission to modify it.")
+
+    # Verify the current user owns the document they are trying to add
+    document = db.query(Document).filter(
+        Document.id == doc_to_add.document_id,
+        Document.owner_id == current_user.id
+    ).first()
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found or you do not own it.")
+
+    # Add the document to the project if it's not already there
+    if document not in project.documents:
+        project.documents.append(document)
+        db.commit()
+        db.refresh(project)
+
+    return project
+
+@app.get("/projects/{project_id}", response_model=ProjectResponse)
+async def read_project_details(
+    project_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves the full details of a single project, including members and documents.
+    Ensures the current user is a member of the project.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+
+    # Verify project exists and user is a member
+    if not project or current_user not in project.members:
+        raise HTTPException(status_code=404, detail="Project not found or you do not have permission to view it.")
+
+    return project
+
 # --- Document and Chat Endpoints ---
 
 @app.get("/documents", response_model=List[DocumentResponse])
@@ -300,9 +451,25 @@ async def read_user_documents(
     db: Session = Depends(get_db)
 ):
     """
-    Retrieves a list of all documents uploaded by the current user.
+    Retrieves a list of all documents the current user owns OR has access to via project membership.
+    This is a corrected version to handle DISTINCT on complex column types like JSON.
     """
-    return db.query(Document).filter(Document.owner_id == current_user.id).all()
+    # Get IDs of projects the user is a member of
+    project_ids = [p.id for p in current_user.projects]
+
+    # Step 1: Create a subquery to select the unique IDs of all accessible documents.
+    # It's efficient to apply DISTINCT only on the ID column.
+    subquery = db.query(Document.id).filter(
+        or_(
+            Document.owner_id == current_user.id,
+            Document.projects.any(Project.id.in_(project_ids))
+        )
+    ).distinct().subquery()
+
+    # Step 2: Query the full Document objects based on the unique IDs found in the subquery.
+    documents = db.query(Document).filter(Document.id.in_(subquery)).all()
+    
+    return documents
 
 @app.post("/upload")
 async def upload_pdf(
@@ -345,30 +512,29 @@ async def upload_pdf(
 
 @app.get("/documents/{document_id}/file")
 async def get_document_file(
-    document_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Session = Depends(get_db)
+    document: Annotated[Document, Depends(get_document_if_user_has_access)]
 ):
     """
-    Retrieves the raw PDF file for a given document.
+    Retrieves the raw PDF file for a given document, checking for user access.
     """
-    document = db.query(Document).filter(
-        Document.id == document_id, 
-        Document.owner_id == current_user.id
-    ).first()
-
-    if not document or not document.file_content:
-        raise HTTPException(status_code=404, detail="Document not found or file content is missing.")
+    if not document.file_content:
+        raise HTTPException(status_code=404, detail="File content is missing for this document.")
 
     return Response(content=document.file_content, media_type="application/pdf")
 
 @app.post("/chat")
-async def chat_with_document(request: ChatRequest, db: Session = Depends(get_db)):
+async def chat_with_document(
+    document: Annotated[Document, Depends(get_document_if_user_has_access)],
+    request: ChatRequest, 
+    db: Session = Depends(get_db)
+):
     """
     Accepts a user question for a specific document and returns a context-aware AI answer as a stream.
+    Access is verified before processing.
     """
+    # The 'document' variable from the dependency is already the validated document object.
+    # We can now proceed with the original logic.
     try:
-        # a. Call find_relevant_chunks() to get the necessary context
         relevant_chunks = find_relevant_chunks(
             document_id=request.document_id,
             question=request.question,
@@ -552,23 +718,14 @@ async def delete_document(
     
 @app.get("/documents/{document_id}/citations", response_model=List[CitationResponse])
 async def get_document_citations(
-    document_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
+    document: Annotated[Document, Depends(get_document_if_user_has_access)],
     db: Session = Depends(get_db)
 ):
     """
-    Retrieves a list of all citations extracted from a specific document.
+    Retrieves a list of all citations extracted from a specific document, checking for user access.
     """
-    # First, verify the user has access to the document
-    document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.owner_id == current_user.id
-    ).first()
-
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found or you do not have permission to view it.")
-
-    citations = db.query(Citation).filter(Citation.document_id == document_id).all()
+    # The dependency already verified access, so we can just query the citations.
+    citations = db.query(Citation).filter(Citation.document_id == document.id).all()
     return citations
 
 def format_citations_to_bibtex(citations: List[Citation]) -> str:
@@ -615,26 +772,17 @@ def format_citations_to_bibtex(citations: List[Citation]) -> str:
 
 @app.get("/documents/{document_id}/citations/export")
 async def export_document_citations(
-    document_id: int,
     format: str,
-    current_user: Annotated[User, Depends(get_current_user)],
+    document: Annotated[Document, Depends(get_document_if_user_has_access)],
     db: Session = Depends(get_db)
 ):
     """
-    Exports citations for a document in a specified format (e.g., bibtex).
+    Exports citations for a document in a specified format, checking for user access.
     """
     if format.lower() != 'bibtex':
         raise HTTPException(status_code=400, detail="Invalid format. Only 'bibtex' is supported.")
 
-    document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.owner_id == current_user.id
-    ).first()
-
-    if not document:
-        raise HTTPException(status_code=404, detail="Document not found or you do not have permission to export citations.")
-
-    citations = db.query(Citation).filter(Citation.document_id == document_id).all()
+    citations = db.query(Citation).filter(Citation.document_id == document.id).all()
     
     if not citations:
         return PlainTextResponse("", media_type="application/x-bibtex")
