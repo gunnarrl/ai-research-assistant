@@ -578,13 +578,25 @@ def format_citations_to_bibtex(citations: List[Citation]) -> str:
     bibtex_string = ""
     for i, citation in enumerate(citations):
         data = citation.data
+        
+        # --- ROBUST AUTHOR HANDLING ---
+        authors_list = data.get("authors", [])
+        if authors_list:
+            # If the list is not empty, get the first author's last name
+            first_author = authors_list[0]
+            # Handle cases where an author might just be a single name
+            author_last_name = first_author.split(" ")[-1].lower()
+        else:
+            # If the authors list is empty, use a default
+            author_last_name = "unknown"
+        # ---------------------------
+
         # Create a unique key for the BibTeX entry
-        author_last_name = data.get("authors", ["unknown"])[0].split(" ")[-1].lower()
         key = f"{author_last_name}{data.get('year', '')}_{i}"
 
         bibtex_entry = f"@article{{{key},\n"
         
-        authors = " and ".join(data.get("authors", []))
+        authors = " and ".join(authors_list) # Use the authors_list we already fetched
         if authors:
             bibtex_entry += f"  author = \"{{{authors}}}\",\n"
         

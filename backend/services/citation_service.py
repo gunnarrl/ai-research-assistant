@@ -1,12 +1,11 @@
 # backend/services/citation_service.py
 
-import re
 from typing import List, Dict, Optional
-from backend.services.gemini_service import parse_references_from_text
+from backend.services.gemini_service import parse_references_from_text # We will reuse the LLM parsing function
 
-def find_references_section(text: str) -> Optional[str]:
+def find_and_isolate_references_text(text: str) -> Optional[str]:
     """
-    Finds the 'References' or 'Bibliography' section in a text.
+    Finds the 'References' or 'Bibliography' section by searching from the end of the document.
 
     Args:
         text: The full text of the document.
@@ -14,22 +13,28 @@ def find_references_section(text: str) -> Optional[str]:
     Returns:
         The text content of the references section, or None if not found.
     """
-    # MODIFIED REGEX: Look for the keyword at the start of a line,
-    # but don't require it to be the *only* thing on the line.
-    match = re.search(r'^\s*(?:REFERENCES||Bibliography|Citations)\s*', text, re.MULTILINE | re.IGNORECASE)
+    # Convert text to lowercase for case-insensitive search
+    lower_text = text.lower()
     
-    if match:
-        # Return the text from the start of the match to the end of the string
-        return text[match.start():]
+    # Find the starting index of the last occurrence of "references" or "bibliography"
+    last_ref_index = lower_text.rfind("references")
+    last_bib_index = lower_text.rfind("bibliography")
+    last_cit_index = lower_text.rfind("citations")
+    last_works_index = lower_text.rfind("works cited")
     
+    start_index = max(last_ref_index, last_bib_index, last_cit_index, last_works_index)
+    
+    if start_index != -1:
+        # Return the slice of the original text from the found index to the end
+        return text[start_index:]
+        
+    print("Could not programmatically find a 'References' or 'Bibliography' section.")
     return None
+
 
 async def extract_citations_from_text(text: str) -> List[Dict]:
     """
-    Extracts structured bibliographic information from a paper's full text.
-
-    This function first locates the references section and then uses an LLM
-    to parse it into a structured list of citations.
+    Extracts structured bibliographic information from a paper's full text using a hybrid approach.
 
     Args:
         text: The full text of the paper.
@@ -37,13 +42,15 @@ async def extract_citations_from_text(text: str) -> List[Dict]:
     Returns:
         A list of dictionaries, where each dictionary represents a parsed citation.
     """
-    references_text = find_references_section(text)
+    # Step 1: Isolate the reference text using our reliable function
+    references_text = find_and_isolate_references_text(text)
     
     if not references_text:
-        print("Could not find a 'References' or 'Bibliography' section.")
         return []
     
+    # Step 2: Pass ONLY the isolated text to the LLM for parsing
     try:
+        # This re-uses the focused LLM function from our first attempt
         structured_citations = await parse_references_from_text(references_text)
         return structured_citations
     except Exception as e:
