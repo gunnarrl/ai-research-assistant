@@ -299,3 +299,54 @@ async def filter_relevant_papers(topic: str, papers: List[Dict]) -> List[str]:
         print(f"An error occurred while filtering papers with the LLM: {e}")
         # Return an empty list as a safe fallback
         return []
+    
+async def synthesize_literature_review(topic: str, summaries: List[Dict]) -> str:
+    """
+    Uses the Gemini API to synthesize a literature review from a list of structured summaries.
+
+    Args:
+        topic: The original research topic.
+        summaries: A list of structured data dictionaries from processed papers.
+
+    Returns:
+        A string containing the synthesized literature review.
+    """
+    try:
+        summaries_context = ""
+        for summary in summaries:
+            # We added 'source_filename' to the summary dict in the previous step
+            filename = summary.get('source_filename', 'Unknown Source')
+            summaries_context += f"--- PAPER: {filename} ---\n"
+            summaries_context += f"Methodology: {summary.get('methodology', 'N/A')}\n"
+            
+            findings = summary.get('key_findings', [])
+            if findings:
+                findings_str = "\n".join(f"- {f}" for f in findings)
+                summaries_context += f"Key Findings:\n{findings_str}\n"
+            summaries_context += "---\n\n"
+
+        prompt = f"""
+        You are a research assistant tasked with writing a literature review.
+        Based *only* on the key findings and methodologies from the papers provided below, write a cohesive literature review on the topic of "{topic}".
+
+        Your response should be a well-structured essay. Synthesize and compare the findings from the different papers. 
+        When you use information from a specific paper, you MUST cite it by its filename, for example: (e.g., "{summaries[0].get('source_filename', 'example_paper.pdf')}").
+
+        Do not invent any information. Ground your entire review in the provided context.
+
+        ---
+        CONTEXT FROM PAPERS:
+        {summaries_context}
+        ---
+
+        LITERATURE REVIEW:
+        """
+        
+        # Use a non-streaming call to get the full text at once
+        response = await model.generate_content_async(prompt)
+        
+        return response.text
+
+    except Exception as e:
+        print(f"An error occurred during literature review synthesis: {e}")
+        return "Failed to generate the literature review due to an internal error."

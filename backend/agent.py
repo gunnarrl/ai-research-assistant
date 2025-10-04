@@ -6,8 +6,8 @@ from fastapi import BackgroundTasks
 
 from .database.database import SessionLocal
 from .database.models import LiteratureReview, Document
+from .services.gemini_service import filter_relevant_papers, synthesize_literature_review
 from .services.arxiv_service import perform_arxiv_search
-from .services.gemini_service import filter_relevant_papers
 from .services.importer_service import import_paper_from_url
 
 
@@ -48,7 +48,7 @@ def run_literature_review_agent(review_id: int, topic: str):
         print(f"[{review_id}] LLM selected {len(final_papers)} relevant papers:")
         for paper in final_papers:
             print(f"  - {paper['title']}")
-            
+
         # --- STEP 2: Ingestion & Summarization ---
         review.status = "SUMMARIZING"
         db.commit()
@@ -96,19 +96,25 @@ def run_literature_review_agent(review_id: int, topic: str):
             raise Exception("Failed to process and summarize any of the selected papers.")
         # ------------------------------------
 
-        # Task 12: Synthesis (placeholder)
+        # --- STEP 3: Synthesis & Final Output ---
         review.status = "SYNTHESIZING"
         db.commit()
         print(f"[{review_id}] Agent Status: SYNTHESIZING")
         
-        # Simulate remaining work
-        import time
-        time.sleep(5) 
+        if not summaries:
+            raise Exception("No summaries were generated, cannot synthesize the review.")
 
-        review.result = f"This is a placeholder. The agent found {len(final_papers)} relevant papers for the topic '{topic}'."
+        print(f"[{review_id}] Synthesizing review from {len(summaries)} summaries...")
+        
+        # Call the new synthesis function
+        final_review_text = asyncio.run(synthesize_literature_review(topic, summaries))
+
+        # Save the final result to the database
+        review.result = final_review_text
         review.status = "COMPLETED"
         db.commit()
         print(f"Agent finished successfully for review_id: {review_id}")
+        # ------------------------------------
 
     except Exception as e:
         print(f"Agent failed for review_id: {review_id}. Error: {e}")
