@@ -6,7 +6,7 @@ import asyncio
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends, status, BackgroundTasks, Response
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -16,8 +16,9 @@ import arxiv
 from datetime import datetime
 
 # Import your models and utility functions
-from backend.database.models import Document, TextChunk, User
+from backend.database.models import Document, TextChunk, User, Citation
 from backend.utils.pdf_parser import extract_text_from_pdf
+from backend.services.citation_service import extract_citations_from_text
 from backend.utils.text_processing import chunk_text
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks, find_relevant_chunks_multi
@@ -68,6 +69,14 @@ class DocumentResponse(BaseModel):
     upload_date: datetime
     status: str
     structured_data: Optional[Dict] = None
+
+    class Config:
+        orm_mode = True
+
+class CitationResponse(BaseModel):
+    id: int
+    document_id: int
+    data: Dict
 
     class Config:
         orm_mode = True
@@ -133,6 +142,16 @@ def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, d
         print(f"Extracting structured data for document_id: {document_id}")
         structured_data = extract_structured_data_sync(extracted_text)
         doc.structured_data = structured_data
+        
+        # --- ADD CITATION EXTRACTION LOGIC ---
+        print(f"Extracting citations for document_id: {document_id}")
+        # Since extract_citations_from_text is an async function, we need to run it in an event loop.
+        citations = asyncio.run(extract_citations_from_text(extracted_text))
+        if citations and "error" not in citations[0]:
+            for citation_data in citations:
+                new_citation = Citation(document_id=document_id, data=citation_data)
+                db.add(new_citation)
+        # ------------------------------------
 
         print(f"Chunking and embedding document_id: {document_id}")
         text_chunks = chunk_text(extracted_text, model=embedding_model)
@@ -530,3 +549,86 @@ async def delete_document(
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"An error occurred while deleting the document: {e}")
+    
+@app.get("/documents/{document_id}/citations", response_model=List[CitationResponse])
+async def get_document_citations(
+    document_id: int,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves a list of all citations extracted from a specific document.
+    """
+    # First, verify the user has access to the document
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.owner_id == current_user.id
+    ).first()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found or you do not have permission to view it.")
+
+    citations = db.query(Citation).filter(Citation.document_id == document_id).all()
+    return citations
+
+def format_citations_to_bibtex(citations: List[Citation]) -> str:
+    """
+    Converts a list of Citation objects into a single BibTeX formatted string.
+    """
+    bibtex_string = ""
+    for i, citation in enumerate(citations):
+        data = citation.data
+        # Create a unique key for the BibTeX entry
+        author_last_name = data.get("authors", ["unknown"])[0].split(" ")[-1].lower()
+        key = f"{author_last_name}{data.get('year', '')}_{i}"
+
+        bibtex_entry = f"@article{{{key},\n"
+        
+        authors = " and ".join(data.get("authors", []))
+        if authors:
+            bibtex_entry += f"  author = \"{{{authors}}}\",\n"
+        
+        title = data.get("title", "No Title")
+        if title:
+            bibtex_entry += f"  title = \"{{{title}}}\",\n"
+            
+        year = data.get("year", "")
+        if year:
+            bibtex_entry += f"  year = \"{year}\",\n"
+            
+        bibtex_entry += "}\n\n"
+        bibtex_string += bibtex_entry
+        
+    return bibtex_string
+
+@app.get("/documents/{document_id}/citations/export")
+async def export_document_citations(
+    document_id: int,
+    format: str,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Exports citations for a document in a specified format (e.g., bibtex).
+    """
+    if format.lower() != 'bibtex':
+        raise HTTPException(status_code=400, detail="Invalid format. Only 'bibtex' is supported.")
+
+    document = db.query(Document).filter(
+        Document.id == document_id,
+        Document.owner_id == current_user.id
+    ).first()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found or you do not have permission to export citations.")
+
+    citations = db.query(Citation).filter(Citation.document_id == document_id).all()
+    
+    if not citations:
+        return PlainTextResponse("", media_type="application/x-bibtex")
+
+    bibtex_content = format_citations_to_bibtex(citations)
+    
+    return PlainTextResponse(bibtex_content, media_type="application/x-bibtex", headers={
+        "Content-Disposition": f"attachment; filename={document.filename}_citations.bib"
+    })
