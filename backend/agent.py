@@ -1,10 +1,14 @@
 # backend/agent.py
+import asyncio
+import time # 
 from sqlalchemy.orm import Session
-from .database.database import SessionLocal
-from .database.models import LiteratureReview
+from fastapi import BackgroundTasks 
 
+from .database.database import SessionLocal
+from .database.models import LiteratureReview, Document
 from .services.arxiv_service import perform_arxiv_search
 from .services.gemini_service import filter_relevant_papers
+from .services.importer_service import import_paper_from_url
 
 
 def run_literature_review_agent(review_id: int, topic: str):
@@ -44,12 +48,53 @@ def run_literature_review_agent(review_id: int, topic: str):
         print(f"[{review_id}] LLM selected {len(final_papers)} relevant papers:")
         for paper in final_papers:
             print(f"  - {paper['title']}")
-        # -----------------------------
-
-        # Task 11: Ingestion & Summarization (placeholder)
+            
+        # --- STEP 2: Ingestion & Summarization ---
         review.status = "SUMMARIZING"
         db.commit()
         print(f"[{review_id}] Agent Status: SUMMARIZING")
+        
+        summaries = []
+        # The agent needs its own BackgroundTasks instance to run the ingestion
+        background_tasks = BackgroundTasks()
+
+        for paper in final_papers:
+            print(f"[{review_id}] Importing paper: '{paper['title']}'")
+            
+            # Use a separate async function to handle the async import call
+            new_doc = asyncio.run(import_paper_from_url(
+                pdf_url=paper['pdf_url'],
+                title=paper['title'],
+                owner_id=review.owner_id,
+                db=db,
+                background_tasks=background_tasks
+            ))
+            
+            # Poll for completion status
+            timeout = 300  # 5 minutes timeout
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                db.refresh(new_doc)
+                if new_doc.status == "COMPLETED":
+                    print(f"[{review_id}] Successfully processed document ID: {new_doc.id}")
+                    if new_doc.structured_data and not new_doc.structured_data.get('error'):
+                        # Add filename for context in the final synthesis step
+                        summary_with_source = new_doc.structured_data
+                        summary_with_source['source_filename'] = new_doc.filename
+                        summaries.append(summary_with_source)
+                    break
+                elif new_doc.status == "FAILED":
+                    print(f"[{review_id}] WARNING: Processing failed for document ID: {new_doc.id}")
+                    break
+                
+                print(f"[{review_id}] Waiting for document ID {new_doc.id} to be processed... (Status: {new_doc.status})")
+                time.sleep(10) # Wait 10 seconds before checking again
+            else:
+                print(f"[{review_id}] WARNING: Timeout reached for document ID: {new_doc.id}")
+
+        if not summaries:
+            raise Exception("Failed to process and summarize any of the selected papers.")
+        # ------------------------------------
 
         # Task 12: Synthesis (placeholder)
         review.status = "SYNTHESIZING"

@@ -21,6 +21,7 @@ from backend.database.models import Document, TextChunk, User, Citation, Project
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.services.citation_service import extract_citations_from_text
 from backend.utils.text_processing import chunk_text
+from backend.services.importer_service import import_paper_from_url
 from backend.services.arxiv_service import perform_arxiv_search
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks, find_relevant_chunks_multi
@@ -602,52 +603,24 @@ async def import_from_url(
     db: Session = Depends(get_db)
 ):
     """
-    Downloads a PDF from a URL and processes it in the background.
+    Downloads a PDF from a URL and processes it in the background using the importer service.
     """
-    # --- ADD THIS LINE FOR DEBUGGING ---
-    print(f"Attempting to import from URL: {request.pdf_url}")
-
     try:
-        # Asynchronously download the PDF content
-        # Added a timeout to prevent hanging on slow responses
-        async with httpx.AsyncClient() as client:
-            response = await client.get(request.pdf_url, follow_redirects=True, timeout=30.0)
-            response.raise_for_status()  # Will raise an exception for 4xx/5xx responses
-            file_bytes = response.content
-
-        # Create a new document record in the database
-        new_document = Document(
-            filename=request.title,
+        new_document = await import_paper_from_url(
+            pdf_url=request.pdf_url,
+            title=request.title,
             owner_id=current_user.id,
-            status="PROCESSING",
-            file_content=file_bytes
+            db=db,
+            background_tasks=background_tasks
         )
-        db.add(new_document)
-        db.commit()
-        db.refresh(new_document)
-
-        # Start the background processing task
-        db_for_task = SessionLocal()
-        background_tasks.add_task(
-            process_pdf_background,
-            file_bytes,
-            request.title,
-            new_document.id,
-            db_for_task
-        )
-
         return {"message": "File import started. Processing in the background.", "document_id": new_document.id}
 
     except httpx.HTTPStatusError as e:
-        # --- IMPROVED ERROR MESSAGE ---
-        error_detail = f"Could not download file. The server at the URL responded with status {e.response.status_code}."
-        print(f"HTTPStatusError: {error_detail} for URL: {request.pdf_url}")
+        error_detail = f"Could not download file. The server responded with status {e.response.status_code}."
         raise HTTPException(status_code=400, detail=error_detail)
     except Exception as e:
-        db.rollback()
-        # --- IMPROVED ERROR MESSAGE ---
-        print(f"An unexpected error occurred during import: {e}")
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
 
 @app.post("/chat/multi")
 async def chat_with_multiple_documents(request: MultiChatRequest, db: Session = Depends(get_db)):
