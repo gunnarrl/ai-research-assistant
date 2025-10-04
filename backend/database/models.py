@@ -1,9 +1,21 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, LargeBinary
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, LargeBinary, Table
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 from backend.database.database import Base
+
+project_members = Table(
+    'project_members', Base.metadata,
+    Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
+    Column('project_id', Integer, ForeignKey('projects.id'), primary_key=True)
+)
+
+project_documents = Table(
+    'project_documents', Base.metadata,
+    Column('document_id', Integer, ForeignKey('documents.id'), primary_key=True),
+    Column('project_id', Integer, ForeignKey('projects.id'), primary_key=True)
+)
 
 class User(Base):
     __tablename__ = "users"
@@ -14,6 +26,21 @@ class User(Base):
 
     # Establish a one-to-many relationship with Document
     documents = relationship("Document", back_populates="owner")
+
+    # Establish a many-to-many relationship with Project
+    projects = relationship("Project", secondary=project_members, back_populates="members")
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+
+    # Relationship to users (members)
+    members = relationship("User", secondary=project_members, back_populates="projects")
+    
+    # Relationship to documents
+    documents = relationship("Document", secondary=project_documents, back_populates="projects")
 
 class Document(Base):
     __tablename__ = "documents"
@@ -35,6 +62,8 @@ class Document(Base):
     chunks = relationship("TextChunk", back_populates="document", cascade="all, delete-orphan")
 
     citations = relationship("Citation", back_populates="document", cascade="all, delete-orphan")
+
+    projects = relationship("Project", secondary=project_documents, back_populates="documents")
 
 class Citation(Base):
     __tablename__ = "citations"
