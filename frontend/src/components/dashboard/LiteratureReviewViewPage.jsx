@@ -1,6 +1,8 @@
 // gunnarrl/ai-research-assistant/ai-research-assistant-bug-fixing/frontend/src/components/dashboard/LiteratureReviewViewPage.jsx
 
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const LiteratureReviewViewPage = ({ review, onReturnToDashboard }) => {
   return (
@@ -16,8 +18,11 @@ const LiteratureReviewViewPage = ({ review, onReturnToDashboard }) => {
         </div>
         <div>
           <h3 className="text-xl font-bold text-gray-800 mb-4">Literature Review</h3>
+          {/* --- 2. REPLACE <p> WITH THE ReactMarkdown COMPONENT --- */}
           <div className="prose max-w-none">
-            <p>{review.result}</p>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {review.result}
+            </ReactMarkdown>
           </div>
         </div>
       </div>

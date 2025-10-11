@@ -4,6 +4,7 @@ import ChatWindow from './ChatWindow';
 import ChatInput from './ChatInput';
 import StructuredDataDisplay from './StructuredDataDisplay';
 import BibliographyDisplay from './BibliographyDisplay';
+import CitationDisplay from './CitationDisplay';
 
 // Add 'document' to the destructured props
 const ChatPane = ({ document, chatHistory, onSendMessage, isLoading, onReturnToDashboard, citations, token }) => {
@@ -43,6 +44,13 @@ return (
               >
                 Insights
               </button>
+              {/* --- ADD CITATION TAB BUTTON --- */}
+              <button
+                onClick={() => setActiveTab('citation')}
+                className={`px-4 py-2 text-sm font-medium ${activeTab === 'citation' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Citation
+              </button>
               <button
                 onClick={() => setActiveTab('bibliography')}
                 className={`px-4 py-2 text-sm font-medium ${activeTab === 'bibliography' ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
@@ -52,6 +60,8 @@ return (
             </div>
             <div className="flex-1 min-h-0">
               {activeTab === 'insights' && <StructuredDataDisplay data={document?.structured_data} />}
+              {/* --- RENDER NEW COMPONENT --- */}
+              {activeTab === 'citation' && <CitationDisplay documentId={document?.id} token={token} />}
               {activeTab === 'bibliography' && <BibliographyDisplay citations={citations} documentId={document?.id} token={token} />}
             </div>
           </div>

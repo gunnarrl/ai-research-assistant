@@ -19,6 +19,7 @@ import arxiv
 from datetime import datetime
 
 # Import your models and utility functions
+
 from backend.database.models import Document, TextChunk, User, Citation, Project, LiteratureReview
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.services.processing_service import process_pdf_background
@@ -28,7 +29,7 @@ from backend.services.importer_service import download_and_create_document
 from backend.services.arxiv_service import perform_arxiv_search
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
 from backend.services.search_service import find_relevant_chunks, find_relevant_chunks_multi
-from backend.services.gemini_service import get_answer_from_gemini, extract_structured_data_sync
+from backend.services.gemini_service import get_answer_from_gemini, extract_structured_data_sync, generate_bibtex_from_text_sync
 from backend.services.importer_service import download_and_create_document
 from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
@@ -513,8 +514,13 @@ async def read_user_documents(
         )
     ).distinct().subquery()
 
+
+
     # Step 2: Query the full Document objects based on the unique IDs found in the subquery.
-    documents = db.query(Document).filter(Document.id.in_(subquery)).all()
+    documents = db.query(Document).filter(
+        Document.id.in_(subquery),
+        Document.is_interactive == True
+    ).all()
     
     return documents
 
@@ -807,6 +813,32 @@ async def export_document_citations(
         "Content-Disposition": f"attachment; filename={document.filename}_citations.bib"
     })
 
+@app.get("/documents/{document_id}/generate-bibtex")
+async def generate_bibtex_for_document(
+    document: Annotated[Document, Depends(get_document_if_user_has_access)],
+    db: Session = Depends(get_db)
+):
+    """
+    Generates a BibTeX citation for a single uploaded document on-demand.
+    """
+    if not document.file_content:
+        raise HTTPException(status_code=404, detail="File content not found for this document.")
+
+    try:
+        # Extract text and generate BibTeX
+        text = extract_text_from_pdf(document.file_content)
+        bibtex_content = generate_bibtex_from_text_sync(text)
+        
+        # Sanitize filename for the download
+        sanitized_filename = "".join(c if c.isalnum() else "_" for c in document.filename.replace('.pdf', ''))
+
+        return PlainTextResponse(bibtex_content, media_type="application/x-bibtex", headers={
+            "Content-Disposition": f"attachment; filename={sanitized_filename}.bib"
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate BibTeX: {e}")
+
+
 # --- Agent Endpoints ---
 
 @app.post("/agent/literature-review", response_model=LitReviewResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -843,7 +875,7 @@ async def get_literature_reviews(
     """
     reviews = db.query(LiteratureReview).filter(
         LiteratureReview.owner_id == current_user.id
-    ).order_by(desc(LiteratureReview.id)).all()
+    ).order_by(desc(LiteratureReview.id)).limit(5).all()
     return reviews
 
 @app.get("/agent/literature-review/active", response_model=Optional[LitReviewResponse])

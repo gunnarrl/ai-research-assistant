@@ -268,7 +268,7 @@ async def filter_relevant_papers(topic: str, papers: List[Dict]) -> List[str]:
 
         prompt = f"""
         You are a research assistant helping to build a literature review.
-        Based on the original topic below, please select the 3 to 5 most relevant papers from the provided list.
+        Based on the original topic below, please select the 8 to 10 most relevant papers from the provided list.
 
         Your response must be ONLY a JSON array of the exact titles of the papers you select.
         Do not include any other text, explanation, or formatting.
@@ -300,55 +300,152 @@ async def filter_relevant_papers(topic: str, papers: List[Dict]) -> List[str]:
         # Return an empty list as a safe fallback
         return []
     
-async def synthesize_literature_review(topic: str, summaries: List[Dict]) -> str:
+async def _get_review_themes(topic: str, synthesis_data: List[Dict]) -> Dict:
     """
-    Uses the Gemini API to synthesize a literature review from a list of structured summaries.
-
-    Args:
-        topic: The original research topic.
-        summaries: A list of structured data dictionaries from processed papers.
-
-    Returns:
-        A string containing the synthesized literature review.
+    Analyzes all key findings and groups them into 2-4 common themes.
+    This serves as the outline for the literature review.
     """
     try:
-        summaries_context = ""
-        for summary in summaries:
-            # We added 'source_filename' to the summary dict in the previous step
-            filename = summary.get('source_filename', 'Unknown Source')
-            summaries_context += f"--- PAPER: {filename} ---\n"
-            summaries_context += f"Methodology: {summary.get('methodology', 'N/A')}\n"
-            
-            findings = summary.get('key_findings', [])
+        # Format the findings for the prompt, mapping them to their source number
+        findings_context = ""
+        for i, data in enumerate(synthesis_data):
+            ref_num = i + 1
+            findings = data.get('structured_data', {}).get('key_findings', [])
             if findings:
                 findings_str = "\n".join(f"- {f}" for f in findings)
-                summaries_context += f"Key Findings:\n{findings_str}\n"
-            summaries_context += "---\n\n"
+                findings_context += f"Source [{ref_num}]:\n{findings_str}\n\n"
 
         prompt = f"""
-        You are a research assistant tasked with writing a literature review.
-        Based *only* on the key findings and methodologies from the papers provided below, write a cohesive literature review on the topic of "{topic}".
+        You are a research analyst tasked with creating an outline for a literature review on the topic of "{topic}".
+        Based on the key findings from the sources provided below, identify 2-4 main themes that connect these findings.
 
-        Your response should be a well-structured essay. Synthesize and compare the findings from the different papers. 
-        When you use information from a specific paper, you MUST cite it by its filename, for example: (e.g., "{summaries[0].get('source_filename', 'example_paper.pdf')}").
+        INSTRUCTIONS:
+        - Your output must be ONLY a valid JSON object.
+        - The JSON object should have a single key: "themes".
+        - The value of "themes" should be a list of objects, where each object has two keys: "theme_name" and "sources".
+        - "theme_name" should be a concise title for the theme.
+        - "sources" should be a list of the integer source numbers relevant to that theme.
 
-        Do not invent any information. Ground your entire review in the provided context.
+        EXAMPLE OUTPUT:
+        {{
+          "themes": [
+            {{
+              "theme_name": "AI Code Detection and Stylometry",
+              "sources": [1, 3, 5]
+            }},
+            {{
+              "theme_name": "Developer Perceptions and Challenges with AI Tools",
+              "sources": [2, 4]
+            }}
+          ]
+        }}
 
+        --- KEY FINDINGS ---
+        {findings_context}
         ---
-        CONTEXT FROM PAPERS:
-        {summaries_context}
-        ---
 
-        LITERATURE REVIEW:
+        JSON OUTPUT:
         """
-        
-        # Use a non-streaming call to get the full text at once
         response = await model.generate_content_async(prompt)
-        
-        return response.text
+        json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
+        return json.loads(json_text)
 
     except Exception as e:
-        print(f"An error occurred during literature review synthesis: {e}")
+        print(f"An error occurred during thematic analysis: {e}")
+        return {"themes": []} # Return a safe default
+
+# --- STEP 2: NEW FUNCTION FOR SYNTHESIZING PARAGRAPHS ---
+async def _synthesize_theme_paragraph(topic: str, theme_name: str, sources_for_theme: List[Dict]) -> str:
+    """
+    Writes a detailed paragraph for a single theme, based on a focused set of findings.
+    """
+    try:
+        # Format the findings just for this theme
+        findings_context = ""
+        for data in sources_for_theme:
+            ref_num = data['ref_num']
+            findings = data.get('structured_data', {}).get('key_findings', [])
+            if findings:
+                findings_str = "\n".join(f"- {f}" for f in findings)
+                findings_context += f"Source [{ref_num}]:\n{findings_str}\n\n"
+
+        prompt = f"""
+        You are writing a section of a literature review on the topic of "{topic}".
+        Your current section is titled: "{theme_name}".
+
+        Based ONLY on the findings from the sources provided below, write a cohesive, detailed paragraph.
+        Synthesize, compare, and contrast the findings from the different sources.
+        When you use information from a source, you MUST cite it using its corresponding number (e.g., [1], [5], etc.).
+
+        --- RELEVANT FINDINGS ---
+        {findings_context}
+        ---
+
+        PARAGRAPH:
+        """
+        response = await model.generate_content_async(prompt)
+        return response.text.strip()
+    except Exception as e:
+        print(f"An error occurred during paragraph synthesis for theme '{theme_name}': {e}")
+        return "" # Return empty string on failure
+
+
+# --- STEP 3: REFACTOR THE MAIN SYNTHESIS FUNCTION ---
+async def synthesize_literature_review(topic: str, synthesis_data: List[Dict]) -> str:
+    """
+    Orchestrates a multi-step process to create a high-quality literature review.
+    """
+    try:
+        # 1. Generate the outline
+        print(f"Synthesizing review for '{topic}': Step 1 - Thematic Analysis...")
+        themed_outline = await _get_review_themes(topic, synthesis_data)
+        if not themed_outline or not themed_outline.get('themes'):
+            raise Exception("Failed to generate a thematic outline.")
+
+        # 2. Generate a paragraph for each theme concurrently
+        print(f"Synthesizing review for '{topic}': Step 2 - Writing Theme Paragraphs...")
+        paragraph_tasks = []
+        for theme in themed_outline['themes']:
+            theme_name = theme['theme_name']
+            source_nums = theme['sources']
+            
+            # Gather the full data for the sources under this theme
+            sources_for_theme = []
+            for num in source_nums:
+                # Add the ref_num to the data for easy access in the prompt
+                synthesis_data[num-1]['ref_num'] = num 
+                sources_for_theme.append(synthesis_data[num-1])
+
+            task = _synthesize_theme_paragraph(topic, theme_name, sources_for_theme)
+            paragraph_tasks.append(task)
+        
+        # Run all paragraph generation tasks in parallel
+        theme_paragraphs = await asyncio.gather(*paragraph_tasks)
+
+        # 3. Assemble the final review
+        print(f"Synthesizing review for '{topic}': Step 3 - Assembling Final Document...")
+        final_review_text = f"# Literature Review: {topic}\n\n"
+        
+        for i, theme in enumerate(themed_outline['themes']):
+            final_review_text += f"## {theme['theme_name']}\n\n"
+            final_review_text += theme_paragraphs[i] + "\n\n"
+            
+        # Add the references section
+        final_review_text += "## References\n\n"
+        reference_list = []
+        for i, data in enumerate(synthesis_data):
+            citation = data.get('source_citation', {})
+            authors = ", ".join(citation.get('authors', []))
+            year = citation.get('year', 'N/A')
+            title = citation.get('title', data.get('filename'))
+            reference_list.append(f"[{i+1}] {authors} ({year}). *{title}*.")
+        
+        final_review_text += "\n".join(reference_list)
+
+        return final_review_text
+
+    except Exception as e:
+        print(f"An error occurred during the multi-step literature review synthesis: {e}")
         return "Failed to generate the literature review due to an internal error."
 
 def parse_references_from_text_sync(context: str) -> List[Dict]:
@@ -406,3 +503,43 @@ def parse_references_from_text_sync(context: str) -> List[Dict]:
     except Exception as e:
         print(f"An error occurred with the Gemini API during sync citation parsing: {e}")
         return [{"error": "Could not parse citations."}]
+
+def generate_bibtex_from_text_sync(context: str) -> str:
+    """
+    Uses the Gemini API to generate a BibTeX citation from the full text of a paper.
+    """
+    try:
+        # A highly specific prompt to get just the BibTeX entry
+        prompt = f"""
+        Act as a professional librarian. Your task is to generate a single, complete BibTeX citation for the research paper provided below.
+        
+        INSTRUCTIONS:
+        - Analyze the text to identify the title, authors, and publication year.
+        - Create a BibTeX key based on the first author's last name and the year.
+        - The response should be ONLY the BibTeX entry, formatted correctly. Do not include any extra text, explanations, or markdown formatting like ```bibtex.
+
+        EXAMPLE OUTPUT:
+        @article{{Larsen2025,
+          title={{Exploring Large Language Models for Analyzing and Improving Method Names in Scientific Code}},
+          author={{Larsen, Gunnar and Wong, Carol and Peruma, Anthony}},
+          year={{2025}}
+        }}
+
+        --- PAPER TEXT ---
+        {context[:15000]} 
+        ---
+
+        BIBTEX ENTRY:
+        """
+        # We use a slice of the text to avoid making the prompt too long
+        
+        response = model.generate_content(prompt)
+        
+        # Clean up the response to ensure it's just the BibTeX
+        bibtex_entry = response.text.strip()
+        return bibtex_entry
+
+    except Exception as e:
+        print(f"An error occurred during BibTeX generation: {e}")
+        return "@misc{error, title = {Failed to generate BibTeX citation}}"
+ 
