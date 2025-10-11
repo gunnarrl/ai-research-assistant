@@ -11,7 +11,7 @@ from .services.arxiv_service import perform_arxiv_search
 from .services.gemini_service import filter_relevant_papers, synthesize_literature_review
 from .services.importer_service import download_and_create_document
 # Import the new async processing function
-from .services.processing_service import process_pdf_and_extract_data
+from .services.processing_service import process_pdf_and_extract_data, process_pdf_background
 
 async def _agent_workflow(review_id: int, topic: str):
     """The core asynchronous workflow for the agent."""
@@ -32,46 +32,47 @@ async def _agent_workflow(review_id: int, topic: str):
         review.status = "SUMMARIZING"
         db.commit()
         
-        summaries = []
+        ingestion_tasks = []
+        newly_created_docs = []
+
         for paper in final_papers:
-            print(f"[{review_id}] Processing paper: '{paper['title']}'")
+            print(f"[{review_id}] Starting ingestion for: '{paper['title']}'")
             
-            # Download and create the initial DB record for the document
+            # 1. Download the paper and create the initial DB record.
             new_doc, file_bytes = await download_and_create_document(
                 pdf_url=paper['pdf_url'], title=paper['title'], owner_id=review.owner_id, db=db
             )
             
-            # Get all processed data from the pure function
-            processed_data = await process_pdf_and_extract_data(file_bytes)
+            # 2. Instead of processing here, dispatch the standard background task.
+            #    We need a new session for each task.
+            db_for_task = SessionLocal()
+            task = asyncio.to_thread(
+                process_pdf_background, 
+                file_bytes, 
+                new_doc.filename, 
+                new_doc.id, 
+                db_for_task
+            )
+            ingestion_tasks.append(task)
+            newly_created_docs.append(new_doc)
 
-            if processed_data.get("error"):
-                print(f"[{review_id}] WARNING: Failed to process '{paper['title']}'. Error: {processed_data['error']}")
-                new_doc.status = "FAILED"
-                db.commit()
-                continue # Skip to the next paper
+        # 3. Wait for all the independent ingestion tasks to complete.
+        await asyncio.gather(*ingestion_tasks)
 
-            # --- All database writes happen here, in the main agent thread ---
-            new_doc.structured_data = processed_data["structured_data"]
-            
-            citations = processed_data["citations"]
-            if citations and "error" not in citations[0]:
-                for citation_data in citations:
-                    db.add(Citation(document_id=new_doc.id, data=citation_data))
-
-            text_chunks = processed_data["text_chunks"]
-            embeddings = processed_data["embeddings"]
-            for i, chunk_text in enumerate(text_chunks):
-                db.add(TextChunk(document_id=new_doc.id, chunk_text=chunk_text, embedding=embeddings[i]))
-            
-            new_doc.status = "COMPLETED"
-            db.commit() # Commit all new data for this document at once
-            # -------------------------------------------------------------
-
-            if new_doc.structured_data:
-                summary_with_source = new_doc.structured_data
-                summary_with_source['source_filename'] = new_doc.filename
+        # 4. Gather the results. The data is now in the database.
+        summaries = []
+        for doc in newly_created_docs:
+            db.refresh(doc) 
+            if doc.status == "COMPLETED" and doc.structured_data:
+                summary_with_source = doc.structured_data
+                summary_with_source['source_filename'] = doc.filename
                 summaries.append(summary_with_source)
+            else:
+                print(f"[{review_id}] WARNING: Document '{doc.filename}' failed processing or has no structured data.")
 
+        # --- FIX: Add a check for an empty summaries list ---
+        if not summaries:
+            raise Exception("No papers could be successfully processed to generate the review.")
 
         # STEP 3: Synthesis
         review.status = "SYNTHESIZING"

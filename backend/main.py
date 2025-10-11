@@ -21,6 +21,7 @@ from datetime import datetime
 # Import your models and utility functions
 from backend.database.models import Document, TextChunk, User, Citation, Project, LiteratureReview
 from backend.utils.pdf_parser import extract_text_from_pdf
+from backend.services.processing_service import process_pdf_background
 from backend.services.citation_service import extract_citations_from_text
 from backend.utils.text_processing import chunk_text
 from backend.services.importer_service import download_and_create_document

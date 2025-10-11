@@ -6,7 +6,63 @@ from backend.database.models import Document, TextChunk, Citation
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.utils.text_processing import chunk_text
 from backend.services.embedding_service import generate_embeddings, model as embedding_model
-from backend.services.gemini_service import extract_structured_data_sync, parse_references_from_text
+from backend.services.gemini_service import extract_structured_data_sync, parse_references_from_text_sync
+from backend.services.citation_service import extract_citations_from_text
+
+
+def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, db: Session):
+    """
+    This function contains the logic to process the PDF in the background.
+    """
+    try:
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if not doc:
+            print(f"Document with ID {document_id} not found for background processing.")
+            return
+
+        extracted_text = extract_text_from_pdf(file_bytes)
+        if not extracted_text.strip():
+            doc.status = "FAILED"
+            db.commit()
+            return
+
+        print(f"Extracting structured data for document_id: {document_id}")
+        structured_data = extract_structured_data_sync(extracted_text)
+        doc.structured_data = structured_data
+        
+        print(f"Extracting citations for document_id: {document_id}")
+        # FIX: Call the synchronous version of the function
+        citations = parse_references_from_text_sync(extracted_text) 
+        if citations and "error" not in citations[0]:
+            for citation_data in citations:
+                new_citation = Citation(document_id=document_id, data=citation_data)
+                db.add(new_citation)
+
+        print(f"Chunking and embedding document_id: {document_id}")
+        text_chunks = chunk_text(extracted_text, model=embedding_model)
+        embeddings = generate_embeddings(text_chunks)
+        
+        for i, chunk in enumerate(text_chunks):
+            new_chunk = TextChunk(document_id=document_id, chunk_text=chunk, embedding=embeddings[i])
+            db.add(new_chunk)
+        
+        doc.status = "COMPLETED"
+        doc.is_interactive = True
+
+        db.commit()
+        print(f"Successfully processed and saved document_id: {document_id}")
+
+    except Exception as e:
+        print(f"An error occurred during background PDF processing for doc ID {document_id}: {e}")
+        db.rollback()
+        doc = db.query(Document).filter(Document.id == document_id).first()
+        if doc:
+            doc.is_interactive = False
+            doc.status = "FAILED"
+            db.commit()
+    finally:
+        db.close()
+
 
 async def process_pdf_and_extract_data(file_bytes: bytes) -> dict:
     """
@@ -16,17 +72,23 @@ async def process_pdf_and_extract_data(file_bytes: bytes) -> dict:
         A dictionary containing all extracted data.
     """
     try:
-        extracted_text = extract_text_from_pdf(file_bytes)
+        # Run blocking CPU-bound functions in a separate thread
+        extracted_text = await asyncio.to_thread(extract_text_from_pdf, file_bytes)
+        
         if not extracted_text.strip():
             return {"error": "Extracted text is empty."}
 
-        # Run async/sync Gemini calls correctly
-        structured_data = await asyncio.to_thread(extract_structured_data_sync, extracted_text)
-        citations = await parse_references_from_text(extracted_text)
+        structured_data_task = asyncio.to_thread(extract_structured_data_sync, extracted_text)
+        citations_task = parse_references_from_text(extracted_text)
         
-        # CPU-bound tasks
-        text_chunks = chunk_text(extracted_text, model=embedding_model)
-        embeddings = generate_embeddings(text_chunks)
+        # Run text chunking and embedding in threads
+        text_chunks = await asyncio.to_thread(chunk_text, extracted_text, model=embedding_model)
+        embeddings = await asyncio.to_thread(generate_embeddings, text_chunks)
+        
+        structured_data, citations = await asyncio.gather(
+            structured_data_task,
+            citations_task
+        )
         
         return {
             "structured_data": structured_data,

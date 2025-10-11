@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, LargeBinary, Table
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, LargeBinary, Table, Boolean
 from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -53,6 +53,7 @@ class Document(Base):
     status = Column(String, nullable=False, default="PENDING")
     structured_data = Column(JSON, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))
+    is_interactive = Column(Boolean, default=True, nullable=False)
 
 
     # Establish a many-to-one relationship with User
