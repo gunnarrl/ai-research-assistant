@@ -1,7 +1,9 @@
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
-DATABASE_URL = "postgresql+psycopg://admin:password@localhost:5433/ai_research_db"
+# DATABASE_URL="postgresql+psycopg://admin:password@localhost:5433/ai_research_db"
+DATABASE_URL="postgresql+psycopg://neondb_owner:npg_3Z0UglAzofFM@ep-aged-rain-aayfc3r0-pooler.westus3.azure.neon.tech/neondb?sslmode=require"
+
 
 print("Attempting to connect to the database...")
 print(f"Connection URL: {DATABASE_URL}")
