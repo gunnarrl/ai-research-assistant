@@ -577,14 +577,20 @@ async def get_document_file(
 
 @app.post("/chat")
 async def chat_with_document(
-    document: Annotated[Document, Depends(get_document_if_user_has_access)],
     request: ChatRequest, 
+    current_user: Annotated[User, Depends(get_current_user)],
     db: Session = Depends(get_db)
 ):
     """
     Accepts a user question for a specific document and returns a context-aware AI answer as a stream.
     Access is verified before processing.
     """
+
+    document = get_document_if_user_has_access(
+        document_id=request.document_id,
+        current_user=current_user,
+        db=db
+    )
     # The 'document' variable from the dependency is already the validated document object.
     # We can now proceed with the original logic.
     try:
