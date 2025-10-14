@@ -591,10 +591,6 @@ async def chat_with_document(
         current_user=current_user,
         db=db
     )
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes
     # The 'document' variable from the dependency is already the validated document object.
     # We can now proceed with the original logic.
     try:
