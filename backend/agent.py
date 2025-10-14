@@ -24,9 +24,9 @@ async def _agent_workflow(review_id: int, topic: str):
         review.status = "SEARCHING"
         db.commit()
         initial_papers = await asyncio.to_thread(perform_arxiv_search, topic, 20)
-        time.sleep(2)
+        asyncio.sleep(2)
         filtered_titles = await filter_relevant_papers(topic, initial_papers)
-        time.sleep(15)
+        asyncio.sleep(15)
         final_papers = [p for p in initial_papers if p['title'] in filtered_titles]
         print(f"[{review_id}] LLM selected {len(final_papers)} relevant papers.")
 
@@ -119,7 +119,3 @@ async def _agent_workflow(review_id: int, topic: str):
             db.commit()
     finally:
         db.close()
-
-def run_literature_review_agent(review_id: int, topic: str):
-    """Synchronous entrypoint that starts the async agent workflow."""
-    asyncio.run(_agent_workflow(review_id, topic))

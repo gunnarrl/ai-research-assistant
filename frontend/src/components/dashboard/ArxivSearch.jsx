@@ -1,7 +1,7 @@
 // frontend/src/components/dashboard/ArxivSearch.jsx
 import React, { useState } from 'react';
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 // Receive token and onImport function as props
 const ArxivSearch = ({ token, onImportSuccess }) => {

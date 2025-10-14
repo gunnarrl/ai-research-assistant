@@ -9,7 +9,7 @@ import MultiDocList from './components/chat/MultiDocList';
 import LiteratureReviewViewPage from './components/dashboard/LiteratureReviewViewPage';
 
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 const TOKEN_KEY = 'authToken';
 
 function App() {

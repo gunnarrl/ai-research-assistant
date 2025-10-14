@@ -1,9 +1,13 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
+import os
+from dotenv import load_dotenv
 
-# Define the database URL using credentials from our docker-compose file
-DATABASE_URL = "postgresql+psycopg://admin:password@localhost:5433/ai_research_db"
+load_dotenv()
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+print(f"--- FastAPI app is using database: {DATABASE_URL} ---")
 
 # Create the SQLAlchemy engine
 # The engine is the entry point to the database.

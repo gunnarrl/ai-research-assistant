@@ -8,7 +8,7 @@ import ProjectsDashboard from './ProjectsDashboard';
 import AddToProjectModal from './AddToProjectModal';
 import AgentDashboard from './AgentDashboard';
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, onSelectProject, onSelectLitReview }) => {
   const [documents, setDocuments] = useState([]);

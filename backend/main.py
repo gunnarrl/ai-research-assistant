@@ -23,7 +23,7 @@ from datetime import datetime
 from backend.database.models import Document, TextChunk, User, Citation, Project, LiteratureReview
 from backend.utils.pdf_parser import extract_text_from_pdf
 from backend.services.processing_service import process_pdf_background
-from backend.services.citation_service import extract_citations_from_text
+from backend.services.citation_service import extract_citations_from_text, extract_citations_from_text_sync
 from backend.utils.text_processing import chunk_text
 from backend.services.importer_service import download_and_create_document
 from backend.services.arxiv_service import perform_arxiv_search
@@ -33,7 +33,7 @@ from backend.services.gemini_service import get_answer_from_gemini, extract_stru
 from backend.services.importer_service import download_and_create_document
 from .database.database import SessionLocal, engine
 from backend.auth import hash_password, verify_password, create_access_token, verify_token
-from backend.agent import run_literature_review_agent
+from backend.agent import _agent_workflow
 
 
 # Pydantic Models for API requests and responses
@@ -210,11 +210,11 @@ app = FastAPI(
 )
 
 # CORS configuration
-origins = ["http://localhost:3000", "http://localhost:5173", "https://ai-research-assistant-eight.vercel.app"]
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(',')
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -242,8 +242,8 @@ def process_pdf_background(file_bytes: bytes, filename: str, document_id: int, d
         
         # --- ADD CITATION EXTRACTION LOGIC ---
         print(f"Extracting citations for document_id: {document_id}")
-        # Since extract_citations_from_text is an async function, we need to run it in an event loop.
-        citations = asyncio.run(extract_citations_from_text(extracted_text))
+        # Use the new synchronous function instead of the async one
+        citations = extract_citations_from_text_sync(extracted_text)
         if citations and "error" not in citations[0]:
             for citation_data in citations:
                 new_citation = Citation(document_id=document_id, data=citation_data)
@@ -286,7 +286,7 @@ async def auth_google(request: GoogleLoginRequest, db: Session = Depends(get_db)
     # This is the URL your frontend is running on
     # For the code exchange to work, this MUST match the "Authorized redirect URIs"
     # you configured in your Google Cloud project.
-    REDIRECT_URI = "http://localhost:5173"
+    REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
     try:
         # Step 1: Exchange the authorization code for an ID token
@@ -867,7 +867,7 @@ async def start_literature_review(
     db.refresh(new_review)
 
     # Add the long-running agent task to the background
-    background_tasks.add_task(run_literature_review_agent, new_review.id, new_review.topic)
+    background_tasks.add_task(_agent_workflow, new_review.id, new_review.topic)
 
     return new_review
 

@@ -1,7 +1,7 @@
 // frontend/src/components/chat/BibliographyDisplay.jsx
 import React from 'react';
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 const BibliographyDisplay = ({ citations, documentId, token }) => {
   if (!citations || citations.length === 0) {

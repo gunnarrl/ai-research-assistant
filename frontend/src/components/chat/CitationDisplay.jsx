@@ -1,7 +1,7 @@
 // frontend/src/components/chat/CitationDisplay.jsx
 import React, { useState } from 'react';
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 const CitationDisplay = ({ documentId, token }) => {
   const [bibtex, setBibtex] = useState('');

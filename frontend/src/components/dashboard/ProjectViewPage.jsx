@@ -1,7 +1,7 @@
 // frontend/src/components/dashboard/ProjectViewPage.jsx
 import React, { useState, useEffect } from 'react';
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
 const ProjectViewPage = ({ project, token, onReturnToDashboard, onSelectDocument }) => {
   const [projectDetails, setProjectDetails] = useState(null);

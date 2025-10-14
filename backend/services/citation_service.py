@@ -1,7 +1,24 @@
 # backend/services/citation_service.py
 
 from typing import List, Dict, Optional
-from backend.services.gemini_service import parse_references_from_text # We will reuse the LLM parsing function
+from backend.services.gemini_service import parse_references_from_text, parse_references_from_text_sync
+
+def extract_citations_from_text_sync(text: str) -> List[Dict]:
+    """
+    Synchronous version of the citation extraction function for background tasks.
+    """
+    references_text = find_and_isolate_references_text(text)
+
+    if not references_text:
+        return []
+
+    try:
+        # Use the synchronous version of the Gemini parsing function
+        structured_citations = parse_references_from_text_sync(references_text)
+        return structured_citations
+    except Exception as e:
+        print(f"An error occurred during synchronous citation parsing: {e}")
+        return [{"error": "Failed to parse citations from text."}]
 
 def find_and_isolate_references_text(text: str) -> Optional[str]:
     """
