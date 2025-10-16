@@ -7,8 +7,6 @@ from dotenv import load_dotenv
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-print(f"--- FastAPI app is using database: {DATABASE_URL} ---")
-
 # Create the SQLAlchemy engine
 # The engine is the entry point to the database.
 engine = create_engine(DATABASE_URL)
