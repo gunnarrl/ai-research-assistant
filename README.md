@@ -1,8 +1,26 @@
 # AI Research Assistant
 
+[![Backend](https://github.com/gunnarrl/ai-research-assistant/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/gunnarrl/ai-research-assistant/actions/workflows/deploy-backend.yml)
+
+[![Frontend](https://github.com/gunnarrl/ai-research-assistant/actions/workflows/deploy-frontend.yml/badge.svg)](https://github.com/gunnarrl/ai-research-assistant/actions/workflows/deploy-frontend.yml)
+
+## Visit the Site
+
+**[🚀 Try the AI Research Assistant live here!](https://ai-research-assistant-eight.vercel.app)**
+---
 The AI Research Assistant is a full-stack web application designed to help researchers, students, and professionals accelerate their work by leveraging the power of Large Language Models (LLMs). The application allows users to upload PDF documents, engage in interactive chats about their content, create collaborative projects, and even automate the process of writing a literature review.
 
 This project is built with a modern, decoupled architecture, featuring a FastAPI backend, a React frontend, and a PostgreSQL database with vector capabilities.
+
+## Cloud Hosting & Architecture
+
+The application is deployed using a modern cloud infrastructure:
+
+* **Frontend (React):** Hosted on **Vercel** for fast, reliable, and serverless distribution of the static assets.
+* **Backend (FastAPI):** Deployed as a containerized service on **Google Cloud Run**, providing auto-scaling and cost-efficiency for the API and long-running background tasks.
+* **Database (PostgreSQL with pgvector):** Hosted on **Neon**, a serverless Postgres platform, which offers branching, autoscaling, and a robust environment for both the relational data and the vector embeddings required for the RAG pipeline.
+
+---
 
 ## Features
 
