@@ -24,7 +24,8 @@ jobs:
     
     env:
       DATABASE_URL: "sqlite:///./test.db"
-      GEMINI_API_KEY: "test"
+      GEMINI_API_KEY: "test-gemini-key"
+      SECRET_KEY: "test-secret-key"
 
     steps:
       - name: Checkout Repository
