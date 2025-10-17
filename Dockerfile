@@ -14,6 +14,9 @@ COPY backend/requirements.txt .
 # 5. Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
+RUN python -m nltk.downloader punkt_tab
+
+
 # 6. Copy your application code into a 'backend' subfolder
 # This preserves the 'from backend...' import structure
 COPY ./backend /code/backend
