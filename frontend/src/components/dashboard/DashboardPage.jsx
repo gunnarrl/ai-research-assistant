@@ -1,7 +1,6 @@
 // gunnarrl/ai-research-assistant/ai-research-assistant-bug-fixing/frontend/src/components/dashboard/DashboardPage.jsx
 
 import React, { useState, useEffect } from 'react';
-import Header from '../Header';
 import FileUploadForm from '../files/FileUploadForm';
 import ArXivSearch from './ArxivSearch';
 import ProjectsDashboard from './ProjectsDashboard';

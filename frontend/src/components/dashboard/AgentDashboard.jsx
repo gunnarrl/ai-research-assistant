@@ -113,7 +113,7 @@ const AgentDashboard = ({ token, onReviewComplete }) => {
     
     return (
       <div className="mt-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-        <h4 className="text-lg font-bold text-gray-800 mb-2">Literature Review on "{activeReview.topic}"</h4>
+        <h4 className="text-lg font-bold text-gray-800 mb-2">Literature Review on &quot;{activeReview.topic}&quot;</h4>
         <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{activeReview.result}</p>
       </div>
     );
