@@ -167,7 +167,6 @@ function App() {
         });
       }
     } catch (err) {
-      // ... error handling is the same
       setChatHistory(prev => {
         const lastMessage = prev[prev.length - 1];
         if (lastMessage && lastMessage.sender === 'ai') {
