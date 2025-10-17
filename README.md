@@ -6,7 +6,7 @@
 
 ## Visit the Site
 
-**[🚀 Try the AI Research Assistant live here!](https://ai-research-assistant-eight.vercel.app)**
+**[Try the AI Research Assistant live here!](https://ai-research-assistant-eight.vercel.app)**
 ---
 The AI Research Assistant is a full-stack web application designed to help researchers, students, and professionals accelerate their work by leveraging the power of Large Language Models (LLMs). The application allows users to upload PDF documents, engage in interactive chats about their content, create collaborative projects, and even automate the process of writing a literature review.
 
