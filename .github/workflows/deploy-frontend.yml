@@ -7,13 +7,12 @@ on:
     branches:
       - main
     paths:
-      - 'frontend/**' # Only run if changes are in the frontend folder
+      - 'frontend/**'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
-    # Set the working directory to the frontend folder
     defaults:
       run:
         working-directory: ./frontend
@@ -30,8 +29,10 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
-      - name: Run Linter
-        run: npm run lint
+      - name: Run Linter and Tests
+        run: |
+          npm run lint
+          npm run test
 
       - name: Deploy to Vercel
         uses: amondnet/vercel-action@v20
