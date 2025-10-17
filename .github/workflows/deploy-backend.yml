@@ -2,20 +2,20 @@
 
 name: Deploy Backend to Cloud Run
 
-# This workflow runs on every push to the 'main' branch
 on:
   push:
     branches:
       - main
     paths:
-      - 'backend/**' # Only run if changes are in the backend folder
-      - 'Dockerfile'   # Or if the Dockerfile itself changes
+      - 'backend/**'
+      - 'Dockerfile'
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GAR_LOCATION: us-west1 # Specify your Artifact Registry location
-  SERVICE_NAME: ai-research-assistant-backend # The name of your Cloud Run service
-  REGION: us-west1 # Specify your Cloud Run service region
+  GAR_LOCATION: us-west1
+  GAR_REPOSITORY: ai-research-assistant
+  SERVICE_NAME: ai-research-assistant-backend
+  REGION: us-west1
 
 jobs:
   build-and-deploy:
@@ -42,12 +42,12 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/backend:latest
+          tags: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/backend:latest
 
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.REGION }}
-          image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}/backend:latest
-          flags: '--allow-unauthenticated' # Add this flag to keep the service public
+          image: ${{ env.GAR_LOCATION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.GAR_REPOSITORY }}/backend:latest
+          flags: '--allow-unauthenticated'
