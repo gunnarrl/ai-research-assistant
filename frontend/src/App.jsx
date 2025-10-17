@@ -1,5 +1,5 @@
 // frontend/src/App.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import PdfViewer from './components/files/PdfViewer';
 import ChatPane from './components/chat/ChatPane';
 import LoginPage from './components/auth/LoginPage';
@@ -29,7 +29,7 @@ function App() {
   const [selectedProject, setSelectedProject] = useState(null);
 
   // --- REFACTORED PDF FETCHING LOGIC ---
-  const fetchAndDisplayPdf = async (docId) => {
+  const fetchAndDisplayPdf = useCallback(async (docId) => {
     if (!token) return;
     setPdfUrl(null); // Clear previous PDF while loading new one
 
@@ -44,14 +44,14 @@ function App() {
     } catch (err) {
       console.error("Failed to load PDF:", err);
     }
-  };
+  }, [token]);
 
   // --- EFFECT TO FETCH PDF WHEN VIEW SELECTION CHANGES ---
   useEffect(() => {
     if (currentMultiViewDocId) {
       fetchAndDisplayPdf(currentMultiViewDocId);
     }
-  }, [currentMultiViewDocId, token]);
+  }, [currentMultiViewDocId, fetchAndDisplayPdf]);
 
 
   const handleLoginSuccess = (newToken) => {

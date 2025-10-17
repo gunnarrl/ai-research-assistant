@@ -1,5 +1,5 @@
 // frontend/src/components/dashboard/ProjectViewPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
 
@@ -9,7 +9,7 @@ const ProjectViewPage = ({ project, token, onReturnToDashboard, onSelectDocument
   const [error, setError] = useState('');
   const [newMemberEmail, setNewMemberEmail] = useState('');
 
-  const fetchProjectDetails = async () => {
+  const fetchProjectDetails = useCallback(async () => {
     setIsLoading(true);
     setError('');
     try {
@@ -24,11 +24,11 @@ const ProjectViewPage = ({ project, token, onReturnToDashboard, onSelectDocument
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [project.id, token]);
 
   useEffect(() => {
     fetchProjectDetails();
-  }, [project.id, token]);
+  }, [project.id, token, fetchProjectDetails]);
 
   const handleAddMember = async (e) => {
     e.preventDefault();

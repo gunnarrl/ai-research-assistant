@@ -1,6 +1,6 @@
 // gunnarrl/ai-research-assistant/ai-research-assistant-bug-fixing/frontend/src/components/dashboard/DashboardPage.jsx
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import FileUploadForm from '../files/FileUploadForm';
 import ArXivSearch from './ArxivSearch';
 import ProjectsDashboard from './ProjectsDashboard';
@@ -27,7 +27,7 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [docToAdd, setDocToAdd] = useState(null);
 
-  const fetchLiteratureReviews = async () => {
+  const fetchLiteratureReviews = useCallback(async () => {
     try {
       const response = await fetch(`${BACKEND_URL}/agent/literature-reviews`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -40,10 +40,10 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
     } catch (err) {
       setError(err.message);
     }
-  };
+  }, [token]);
 
   // This function needs to be defined inside the component or passed as a prop
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     setError('');
     try {
       const response = await fetch(`${BACKEND_URL}/documents`, {
@@ -69,9 +69,9 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [token, onLogout]);
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     try {
       const response = await fetch(`${BACKEND_URL}/projects`, {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -83,12 +83,12 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
     } catch (err) {
       setError(err.message);
     }
-  };
+  }, [token, onLogout]);
 
   useEffect(() => {
     setIsLoading(true);
     Promise.all([fetchDocuments(), fetchProjects(), fetchLiteratureReviews()]).finally(() => setIsLoading(false));
-  }, [token]);
+  }, [token, fetchDocuments, fetchProjects, fetchLiteratureReviews]); // Add all three dependencies
 
   useEffect(() => {
     const hasProcessingDocuments = documents.some(doc => doc.status === 'PROCESSING');
@@ -102,7 +102,7 @@ const DashboardPage = ({ token, onSelectDocument, onLogout, onStartMultiChat, on
 
       return () => clearInterval(intervalId);
     }
-  }, [documents, litReviews]);
+  }, [documents, litReviews, fetchDocuments, fetchLiteratureReviews]);
 
   const handleOpenAddToProjectModal = (doc) => {
     setDocToAdd(doc);
